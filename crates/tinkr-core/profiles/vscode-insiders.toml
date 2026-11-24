@@ -1,0 +1,12 @@
+id = "vscode-insiders"
+name = "VS Code Insiders"
+kind = "ide-extension"
+dir_default = "~/.vscode-insiders"
+limits = ["Cloud-routed Copilot traffic is not proxied; MCP tools and terminal hooks apply locally."]
+[detect]
+executables = ["code-insiders"]
+paths = ["~/.vscode-insiders"]
+[[actions]]
+type = "mcp_server"
+file = "mcp.json"
+key = "servers"

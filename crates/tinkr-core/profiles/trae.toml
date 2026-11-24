@@ -1,0 +1,12 @@
+id = "trae"
+name = "Trae"
+kind = "ide-native"
+dir_default = "~/.trae"
+limits = ["Cloud-routed Trae features are not proxied; MCP tools apply locally."]
+[detect]
+executables = ["trae"]
+paths = ["~/.trae"]
+[[actions]]
+type = "mcp_server"
+file = "mcp.json"
+key = "mcpServers"

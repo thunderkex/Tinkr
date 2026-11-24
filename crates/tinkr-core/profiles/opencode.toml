@@ -1,0 +1,16 @@
+id = "opencode"
+name = "OpenCode"
+kind = "cli"
+dir_default = "~/.config/opencode"
+limits = [
+  "Configured via MCP tools and AGENTS.md rules block.",
+]
+
+[detect]
+executables = ["opencode"]
+paths = ["~/.config/opencode"]
+
+[[actions]]
+type = "rules_block"
+file = "AGENTS.md"
+comment = "<!--|-->"

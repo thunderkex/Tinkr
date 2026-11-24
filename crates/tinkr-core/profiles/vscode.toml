@@ -1,0 +1,16 @@
+id = "vscode"
+name = "VS Code"
+kind = "ide-extension"
+dir_default = "~/.vscode"
+limits = [
+  "VS Code Copilot cloud traffic is not proxied; Tinkr provides MCP tools and shell hooks for terminal agents.",
+]
+
+[detect]
+executables = ["code"]
+paths = ["~/.vscode"]
+
+[[actions]]
+type = "mcp_server"
+file = "mcp.json"
+key = "servers"

@@ -1,0 +1,12 @@
+id = "eclipse"
+name = "Eclipse"
+kind = "ide-extension"
+dir_default = "~/.eclipse"
+limits = ["Eclipse AI plugins inherit user env vars and rules block."]
+[detect]
+executables = ["eclipse"]
+paths = ["~/.eclipse"]
+[[actions]]
+type = "rules_block"
+file = "AGENTS.md"
+comment = "<!--|-->"

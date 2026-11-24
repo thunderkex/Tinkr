@@ -1,0 +1,12 @@
+id = "vscodium"
+name = "VSCodium"
+kind = "ide-extension"
+dir_default = "~/.vscode-oss"
+limits = ["MCP tools registered locally; proxy applies to extensions that support custom base URLs."]
+[detect]
+executables = ["codium"]
+paths = ["~/.vscode-oss"]
+[[actions]]
+type = "mcp_server"
+file = "mcp.json"
+key = "servers"

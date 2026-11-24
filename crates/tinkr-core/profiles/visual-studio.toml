@@ -1,0 +1,12 @@
+id = "visual-studio"
+name = "Visual Studio"
+kind = "ide-extension"
+dir_default = "~/.vs"
+limits = ["Visual Studio Copilot cloud traffic is not proxied; MCP tools and rules apply locally."]
+[detect]
+executables = ["devenv"]
+paths = ["~/.vs"]
+[[actions]]
+type = "mcp_server"
+file = "mcp.json"
+key = "servers"

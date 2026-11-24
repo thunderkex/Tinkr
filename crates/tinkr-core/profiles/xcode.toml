@@ -1,0 +1,12 @@
+id = "xcode"
+name = "Xcode"
+kind = "ide-native"
+dir_default = "~/Library/Developer/Xcode"
+limits = ["macOS only; Tinkr provides a rules block for Xcode AI assistants."]
+[detect]
+executables = ["xcodebuild"]
+paths = ["~/Library/Developer/Xcode"]
+[[actions]]
+type = "rules_block"
+file = "AGENTS.md"
+comment = "<!--|-->"

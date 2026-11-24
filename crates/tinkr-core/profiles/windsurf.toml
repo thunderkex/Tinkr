@@ -1,0 +1,16 @@
+id = "windsurf"
+name = "Windsurf"
+kind = "ide-native"
+dir_default = "~/.codeium/windsurf"
+limits = [
+  "Cloud-routed Cascade traffic is not proxied; Tinkr applies MCP tools locally.",
+]
+
+[detect]
+executables = ["windsurf"]
+paths = ["~/.codeium/windsurf"]
+
+[[actions]]
+type = "mcp_server"
+file = "mcp_config.json"
+key = "mcpServers"

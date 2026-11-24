@@ -1,0 +1,12 @@
+id = "kiro"
+name = "Kiro"
+kind = "ide-native"
+dir_default = "~/.kiro"
+limits = ["MCP tools registered in settings/mcp.json."]
+[detect]
+executables = ["kiro"]
+paths = ["~/.kiro"]
+[[actions]]
+type = "mcp_server"
+file = "settings/mcp.json"
+key = "mcpServers"

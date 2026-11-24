@@ -1,0 +1,12 @@
+id = "neovim"
+name = "Neovim"
+kind = "ide-extension"
+dir_default = "~/.config/nvim"
+limits = ["Neovim AI plugins (avante, codecompanion, aider) inherit user env vars and AGENTS.md."]
+[detect]
+executables = ["nvim"]
+paths = ["~/.config/nvim"]
+[[actions]]
+type = "rules_block"
+file = "AGENTS.md"
+comment = "<!--|-->"

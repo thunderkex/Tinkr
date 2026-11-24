@@ -1,0 +1,21 @@
+id = "gemini-cli"
+name = "Gemini CLI"
+kind = "cli"
+dir_default = "~/.gemini"
+limits = [
+  "MCP tools and rules block are installed locally; shell hooks apply when enabled in Gemini CLI settings.",
+]
+
+[detect]
+executables = ["gemini"]
+paths = ["~/.gemini"]
+
+[[actions]]
+type = "mcp_server"
+file = "settings.json"
+key = "mcpServers"
+
+[[actions]]
+type = "rules_block"
+file = "GEMINI.md"
+comment = "<!--|-->"

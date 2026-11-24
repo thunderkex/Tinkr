@@ -1,0 +1,16 @@
+id = "zed"
+name = "Zed"
+kind = "ide-native"
+dir_default = "~/.config/zed"
+limits = [
+  "MCP tools registered in settings.json; provider proxy applies when custom base URL is set.",
+]
+
+[detect]
+executables = ["zed"]
+paths = ["~/.config/zed"]
+
+[[actions]]
+type = "mcp_server"
+file = "settings.json"
+key = "context_servers"

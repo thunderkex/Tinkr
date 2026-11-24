@@ -1,0 +1,16 @@
+id = "aider"
+name = "Aider"
+kind = "cli"
+dir_default = "~"
+limits = [
+  "Aider inherits OPENAI_BASE_URL / ANTHROPIC_BASE_URL from the user environment.",
+]
+
+[detect]
+executables = ["aider"]
+paths = ["~/.aider.conf.yml"]
+
+[[actions]]
+type = "rules_block"
+file = ".aider.tinkr.md"
+comment = "<!--|-->"

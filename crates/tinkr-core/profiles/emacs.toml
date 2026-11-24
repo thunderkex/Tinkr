@@ -1,0 +1,12 @@
+id = "emacs"
+name = "Emacs"
+kind = "ide-extension"
+dir_default = "~/.emacs.d"
+limits = ["Emacs AI packages (gptel, copilot.el, aider.el) inherit user env vars and AGENTS.md."]
+[detect]
+executables = ["emacs"]
+paths = ["~/.emacs.d", "~/.config/emacs"]
+[[actions]]
+type = "rules_block"
+file = "AGENTS.md"
+comment = "<!--|-->"

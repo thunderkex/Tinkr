@@ -1,0 +1,12 @@
+id = "goose"
+name = "Goose"
+kind = "cli"
+dir_default = "~/.config/goose"
+limits = ["Goose inherits user env vars and AGENTS.md rules."]
+[detect]
+executables = ["goose"]
+paths = ["~/.config/goose"]
+[[actions]]
+type = "rules_block"
+file = "AGENTS.md"
+comment = "<!--|-->"

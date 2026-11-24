@@ -1,0 +1,12 @@
+id = "warp"
+name = "Warp"
+kind = "desktop"
+dir_default = "~/.warp"
+limits = ["Warp terminal inherits shell integration and AGENTS.md rules."]
+[detect]
+executables = ["warp-terminal"]
+paths = ["~/.warp"]
+[[actions]]
+type = "rules_block"
+file = "AGENTS.md"
+comment = "<!--|-->"

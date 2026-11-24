@@ -1,0 +1,16 @@
+id = "jetbrains"
+name = "JetBrains IDEs"
+kind = "ide-extension"
+dir_default = "~/.config/JetBrains"
+limits = [
+  "Covers IntelliJ IDEA, PyCharm, WebStorm, GoLand, Rider, CLion, RustRover, Android Studio via MCP / rules.",
+]
+
+[detect]
+executables = ["idea", "pycharm", "webstorm", "goland", "rider", "clion", "rustrover"]
+paths = ["~/.config/JetBrains", "~/Library/Application Support/JetBrains"]
+
+[[actions]]
+type = "rules_block"
+file = "AGENTS.md"
+comment = "<!--|-->"

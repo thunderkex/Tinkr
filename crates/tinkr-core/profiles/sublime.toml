@@ -1,0 +1,12 @@
+id = "sublime"
+name = "Sublime Text"
+kind = "ide-extension"
+dir_default = "~/.config/sublime-text"
+limits = ["Sublime AI packages inherit user env vars and rules block."]
+[detect]
+executables = ["subl"]
+paths = ["~/.config/sublime-text", "~/Library/Application Support/Sublime Text"]
+[[actions]]
+type = "rules_block"
+file = "AGENTS.md"
+comment = "<!--|-->"

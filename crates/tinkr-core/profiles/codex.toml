@@ -1,0 +1,20 @@
+id = "codex"
+name = "Codex CLI"
+kind = "cli"
+dir_env = "CODEX_HOME"
+dir_default = "~/.codex"
+limits = [
+  "Codex asks you to approve new hooks once (run /hooks inside Codex). Tinkr cannot and does not bypass that.",
+  "Only strictly read-only commands are rewritten for Codex.",
+]
+
+[detect]
+executables = ["codex"]
+paths = ["~/.codex"]
+
+[[actions]]
+type = "json_hook"
+file = "hooks.json"
+event = "PreToolUse"
+matcher = "Bash"
+agent = "codex"

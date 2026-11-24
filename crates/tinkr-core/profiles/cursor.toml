@@ -1,0 +1,16 @@
+id = "cursor"
+name = "Cursor"
+kind = "ide-native"
+dir_default = "~/.cursor"
+limits = [
+  "Cloud-routed Cursor features cannot be proxied locally; Tinkr applies MCP tools and rules locally.",
+]
+
+[detect]
+executables = ["cursor"]
+paths = ["~/.cursor"]
+
+[[actions]]
+type = "mcp_server"
+file = "mcp.json"
+key = "mcpServers"

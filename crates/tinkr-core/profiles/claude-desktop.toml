@@ -1,0 +1,15 @@
+id = "claude-desktop"
+name = "Claude Desktop"
+kind = "desktop"
+dir_default = "~/.config/Claude"
+limits = [
+  "Desktop app is MCP-only; shell hooks and local proxy do not apply.",
+]
+
+[detect]
+paths = ["~/.config/Claude", "~/Library/Application Support/Claude"]
+
+[[actions]]
+type = "mcp_server"
+file = "claude_desktop_config.json"
+key = "mcpServers"

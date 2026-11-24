@@ -1,0 +1,19 @@
+id = "claude-code"
+name = "Claude Code"
+kind = "cli"
+dir_env = "CLAUDE_CONFIG_DIR"
+dir_default = "~/.claude"
+limits = [
+  "Only commands the user has already allowed (or strictly read-only ones) are rewritten; Tinkr never grants new permissions.",
+]
+
+[detect]
+executables = ["claude"]
+paths = ["~/.claude"]
+
+[[actions]]
+type = "json_hook"
+file = "settings.json"
+event = "PreToolUse"
+matcher = "Bash"
+agent = "claude"

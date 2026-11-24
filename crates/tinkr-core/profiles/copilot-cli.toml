@@ -1,0 +1,16 @@
+id = "copilot-cli"
+name = "GitHub Copilot CLI"
+kind = "cli"
+dir_default = "~/.copilot"
+limits = [
+  "Copilot subscription uses per-request billing; Tinkr automatically skips the say-less layer when proxied.",
+]
+
+[detect]
+executables = ["github-copilot-cli", "copilot"]
+paths = ["~/.copilot"]
+
+[[actions]]
+type = "mcp_server"
+file = "mcp-config.json"
+key = "mcpServers"
