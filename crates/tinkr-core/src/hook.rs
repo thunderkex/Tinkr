@@ -164,6 +164,75 @@ pub fn kind_of(cmd: &str) -> Kind {
     classify::classify(cmd).unwrap_or(Kind::Generic)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AntigravityStopEvent {
+    pub session_key: String,
+    pub provider: crate::provider::Provider,
+    pub before: u64,
+    pub after: u64,
+}
+
+fn read_tail_utf8(path: &std::path::Path, max_bytes: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    if len > max_bytes {
+        f.seek(SeekFrom::End(-(max_bytes as i64))).ok()?;
+    }
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+pub fn extract_antigravity_stop(input: &str) -> Option<AntigravityStopEvent> {
+    let v: Value = serde_json::from_str(input).ok()?;
+    if v["hookEventName"].as_str() != Some("Stop") {
+        return None;
+    }
+    if let Some(reason) = v["terminationReason"].as_str() {
+        if !reason.is_empty() && reason != "NO_TOOL_CALL" {
+            return None;
+        }
+    }
+    if let Some(user_input) = v["lastUserInput"].as_str() {
+        if crate::say_less::user_needs_full_explanation(user_input) {
+            return None;
+        }
+    }
+    let transcript_path = v["transcriptPath"].as_str()?;
+    let tail = read_tail_utf8(std::path::Path::new(transcript_path), 512 * 1024)?;
+    let conv_id = v["conversationId"].as_str().unwrap_or("unknown");
+    let fallback_model = v["modelName"].as_str().unwrap_or("");
+
+    for line in tail.lines().rev() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || !trimmed.starts_with('{') {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<Value>(trimmed) else {
+            continue;
+        };
+        if entry["type"].as_str() != Some("PLANNER_RESPONSE") {
+            continue;
+        }
+        let Some(content) = entry["content"].as_str().filter(|s| !s.trim().is_empty()) else {
+            continue;
+        };
+        let after = crate::tokenizer::count(content, crate::tokenizer::TokenizerKind::Exact).tokens;
+        let before = crate::say_less::estimate_before_tokens(after)?;
+        let model = entry["model"].as_str().unwrap_or(fallback_model);
+        let provider = crate::say_less::infer_provider_from_model(model);
+        let step_idx = entry["step_index"].as_i64().unwrap_or(-1);
+        return Some(AntigravityStopEvent {
+            session_key: format!("agy:{conv_id}:{step_idx}"),
+            provider,
+            before,
+            after,
+        });
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,5 +384,59 @@ mod tests {
 
         let rtk = r#"{"hookEventName":"PreToolUse","toolCall":{"id":"3","name":"run_command","args":{"CommandLine":"rtk git status"}}}"#;
         assert!(handle(Agent::Antigravity, rtk, "C:/t/tinkr.exe", &p).is_none());
+    }
+
+    #[test]
+    fn antigravity_stop_extracts_say_less_and_skips_exceptions() {
+        let dir = tempfile::tempdir().unwrap();
+        let tp = dir.path().join("transcript.jsonl");
+        let reply = "Fixed the recall backoff bug in ledger.rs and wired SayLess and MCP events into the SQLite ledger. All workspace unit and integration tests pass.";
+        let line1 = json!({
+            "step_index": 10,
+            "type": "PLANNER_RESPONSE",
+            "model": "gemini-4-neon-high",
+            "tool_calls": [{"name": "run_command"}]
+        });
+        let line2 = json!({
+            "step_index": 11,
+            "type": "PLANNER_RESPONSE",
+            "model": "gemini-4-neon-high",
+            "content": reply,
+            "output_tokens": 500
+        });
+        std::fs::write(&tp, format!("{line1}\n{line2}\n")).unwrap();
+
+        let payload = json!({
+            "hookEventName": "Stop",
+            "conversationId": "conv-123",
+            "terminationReason": "NO_TOOL_CALL",
+            "lastUserInput": "fix everything",
+            "transcriptPath": tp.to_string_lossy()
+        })
+        .to_string();
+        let ev = extract_antigravity_stop(&payload).expect("expected stop event");
+        assert_eq!(ev.session_key, "agy:conv-123:11");
+        assert_eq!(ev.provider, crate::provider::Provider::Gemini);
+        assert!(ev.before > ev.after && ev.after >= 12);
+
+        let detailed = json!({
+            "hookEventName": "Stop",
+            "conversationId": "conv-123",
+            "terminationReason": "NO_TOOL_CALL",
+            "lastUserInput": "please explain in detail",
+            "transcriptPath": tp.to_string_lossy()
+        })
+        .to_string();
+        assert!(extract_antigravity_stop(&detailed).is_none());
+
+        let canceled = json!({
+            "hookEventName": "Stop",
+            "conversationId": "conv-123",
+            "terminationReason": "USER_CANCELED",
+            "lastUserInput": "fix everything",
+            "transcriptPath": tp.to_string_lossy()
+        })
+        .to_string();
+        assert!(extract_antigravity_stop(&canceled).is_none());
     }
 }

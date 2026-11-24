@@ -1,4 +1,31 @@
-use crate::tokenizer::{self, TokenizerKind};
+use crate::{
+    provider::Provider,
+    tokenizer::{self, TokenizerKind},
+};
+
+pub const SAY_LESS_CONCISE_RATIO: f64 = 0.65;
+pub const SAY_LESS_MIN_OUTPUT_TOKENS: u64 = 12;
+
+pub fn estimate_before_tokens(after_tokens: u64) -> Option<u64> {
+    if after_tokens < SAY_LESS_MIN_OUTPUT_TOKENS {
+        return None;
+    }
+    let before = ((after_tokens as f64) / SAY_LESS_CONCISE_RATIO).round() as u64;
+    (before > after_tokens).then_some(before)
+}
+
+pub fn infer_provider_from_model(model: &str) -> Provider {
+    let m = model.to_ascii_lowercase();
+    if m.contains("gemini") {
+        Provider::Gemini
+    } else if m.contains("claude") || m.contains("sonnet") || m.contains("opus") || m.contains("haiku") {
+        Provider::Anthropic
+    } else if m.contains("gpt") || m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4") {
+        Provider::OpenAi
+    } else {
+        Provider::Unknown
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Billing {
@@ -91,5 +118,17 @@ mod tests {
             append_to_system(&applied, Billing::PerToken, Some("fix bug")),
             applied
         );
+    }
+
+    #[test]
+    fn estimates_before_tokens_and_infers_provider() {
+        assert_eq!(estimate_before_tokens(0), None);
+        assert_eq!(estimate_before_tokens(11), None);
+        let before = estimate_before_tokens(130).unwrap();
+        assert_eq!(before, 200);
+        assert_eq!(infer_provider_from_model("gemini-4-neon-high"), Provider::Gemini);
+        assert_eq!(infer_provider_from_model("claude-sonnet-4-5"), Provider::Anthropic);
+        assert_eq!(infer_provider_from_model("gpt-5"), Provider::OpenAi);
+        assert_eq!(infer_provider_from_model("custom-local"), Provider::Unknown);
     }
 }

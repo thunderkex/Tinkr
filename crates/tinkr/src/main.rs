@@ -100,6 +100,13 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
         Some("recall") => {
             let id = args.get(1).ok_or("usage: tinkr recall <id>")?;
             let data = RecallStore::open(&paths.recall_dir())?.get(id)?;
+            if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
+                let ts = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+                let _ = ledger.record_recall(id, ts);
+            }
             io::stdout().write_all(&data)?;
         }
         Some("undo") => {
@@ -162,9 +169,16 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
         }
         Some("mcp") => {
             let store = RecallStore::open(&paths.recall_dir())?;
+            let ledger = Ledger::open(&paths.ledger_db()).ok();
             let stdin = io::stdin();
             let stdout = io::stdout();
-            mcp::serve_stdio(stdin.lock(), stdout.lock(), &store, caps.unicode)?;
+            mcp::serve_stdio_with_ledger(
+                stdin.lock(),
+                stdout.lock(),
+                &store,
+                ledger.as_ref(),
+                caps.unicode,
+            )?;
         }
         Some("hook") => {
             let agent = args.get(1).and_then(|s| Agent::parse(s));
@@ -173,6 +187,34 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
                 if !scope::is_paused(&paths.config, &cwd) {
                     let mut buf = String::new();
                     if io::stdin().read_to_string(&mut buf).is_ok() {
+                        if agent == Agent::Antigravity {
+                            if let Some(ev) = hook::extract_antigravity_stop(&buf) {
+                                if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
+                                    if !ledger
+                                        .has_session_event(Layer::SayLess, &ev.session_key)
+                                        .unwrap_or(false)
+                                    {
+                                        let ts = SystemTime::now()
+                                            .duration_since(UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_secs() as i64;
+                                        let _ = ledger.record(&Event {
+                                            ts,
+                                            layer: Layer::SayLess,
+                                            provider: ev.provider,
+                                            tool: "antigravity".to_string(),
+                                            session: Some(ev.session_key),
+                                            before: ev.before,
+                                            after: ev.after,
+                                            kind: tinkr_core::ledger::CountKind::Estimated,
+                                            recall_id: None,
+                                        });
+                                    }
+                                }
+                                println!("{{\"decision\":\"allow\"}}");
+                                return Ok(ExitCode::SUCCESS);
+                            }
+                        }
                         let exe = std::env::current_exe()
                             .map(|p| p.to_string_lossy().into_owned())
                             .unwrap_or_else(|_| "tinkr".to_string());
