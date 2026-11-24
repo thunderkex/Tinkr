@@ -1,10 +1,29 @@
 {
   "name": "tinkr-companion",
   "displayName": "Tinkr",
-  "description": "Status bar token savings & Doctor command for the local Tinkr binary (works in VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro).",
+  "description": "Status bar token savings & Doctor command for the local Tinkr binary (works in VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro, Antigravity IDE).",
   "version": "0.1.0",
   "publisher": "thunderkex",
   "license": "Apache-2.0",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thunderkex/Tinkr.git"
+  },
+  "homepage": "https://github.com/thunderkex/Tinkr#readme",
+  "bugs": {
+    "url": "https://github.com/thunderkex/Tinkr/issues"
+  },
+  "keywords": [
+    "tinkr",
+    "llm",
+    "tokens",
+    "ai",
+    "copilot",
+    "claude",
+    "cursor",
+    "context"
+  ],
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
   "activationEvents": ["onStartupFinished"],
