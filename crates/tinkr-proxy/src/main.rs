@@ -8,6 +8,16 @@ async fn main() {
         println!("tinkr-proxy {}", env!("CARGO_PKG_VERSION"));
         return;
     }
+    if args
+        .iter()
+        .any(|a| matches!(a.as_str(), "--help" | "-h" | "help" | "/?"))
+    {
+        println!(
+            "tinkr-proxy {}\n\nLoopback HTTP proxy for Tinkr.\n\nUsage:\n  tinkr-proxy [--port <PORT>]\n\nOptions:\n  --port <PORT>   Listen port (default: ephemeral 0)\n  -h, --help      Print help\n  -V, --version   Print version",
+            env!("CARGO_PKG_VERSION")
+        );
+        return;
+    }
     let port: u16 = args
         .windows(2)
         .find(|w| w[0] == "--port")

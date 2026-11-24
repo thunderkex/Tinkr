@@ -42,7 +42,7 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
         Some("--version" | "-V") => {
             println!("tinkr {VERSION}");
         }
-        Some("--help" | "-h" | "help") => {
+        Some("--help" | "-h" | "help" | "/?") => {
             print_help();
         }
         None => {
