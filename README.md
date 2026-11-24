@@ -14,8 +14,10 @@ A single static Rust binary (`tinkr` + `tinkr-proxy`) that automatically cuts LL
 
 | OS | Command |
 |---|---|
-| **Windows** | `winget install thunderkex.Tinkr` *(or `scripts/install.ps1`)* |
-| **macOS / Linux** | `brew install thunderkex/tap/tinkr` *(or `scripts/install.sh`)* |
+| **Windows (Winget)** | `winget install thunderkex.Tinkr` *(or `scripts/install.ps1`)* |
+| **macOS / Linux (Homebrew)** | `brew install thunderkex/tap/tinkr` *(or `scripts/install.sh`)* |
+
+Prebuilt binaries (`x64` / `arm64` for Windows, macOS, Linux) and `SHA256SUMS` are published on [GitHub Releases](https://github.com/thunderkex/Tinkr/releases).
 
 ## Quick Start
 
