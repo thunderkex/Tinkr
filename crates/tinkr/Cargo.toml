@@ -1,0 +1,16 @@
+[package]
+name = "tinkr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[[bin]]
+name = "tinkr"
+path = "src/main.rs"
+
+[dependencies]
+tinkr-core = { path = "../tinkr-core" }
+serde_json.workspace = true
