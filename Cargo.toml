@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["crates/tinkr-core", "crates/tinkr", "crates/tinkr-proxy"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "Apache-2.0"
+repository = "https://github.com/thunderkex/tinkr"
+description = "Tinkr optimizes your agent's context so you don't have to."
+
+[workspace.dependencies]
+directories = "6"
+rusqlite = { version = "0.37", features = ["bundled"] }
+tiktoken-rs = "0.7"
+sha2 = "0.10"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"
+opt-level = "s"

@@ -1,0 +1,12 @@
+Tinkr
+Copyright 2026 The Tinkr contributors
+
+Licensed under the Apache License, Version 2.0. Clean-room implementation;
+no code from BUSL-1.1 projects is included.
+
+Third-party components (Apache-2.0 / MIT) are used as Cargo dependencies;
+see `cargo about` / the SBOM published with each release for the full list.
+Direct dependencies: directories, rusqlite (bundled SQLite, public domain),
+tiktoken-rs (MIT), sha2, thiserror, serde, serde_json, tempfile, regex, toml_edit, toml,
+tokio, hyper, hyper-util, http-body-util, bytes, futures-util, reqwest,
+winreg (MIT), windows-sys (MIT/Apache-2.0).
