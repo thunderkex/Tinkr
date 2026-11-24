@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: thunderkex.Tinkr
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: thunderkex
+PackageName: Tinkr
+License: Apache-2.0
+ShortDescription: Tinkr optimizes your agent's context so you don't have to.
+Moniker: tinkr
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
