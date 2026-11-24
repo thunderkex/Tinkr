@@ -157,3 +157,70 @@ jobs:
         with:
           identifier: thunderkex.Tinkr
           token: ${{ secrets.WINGET_TOKEN }}
+
+  publish-extensions:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+      JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Package VS Code extension (.vsix)
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER="${VER#v}"
+          cd extensions/vscode
+          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=process.env.VER;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          npx --yes @vscode/vsce package --out "../../tinkr-companion-${VER}.vsix"
+      - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER="${VER#v}"
+          npx --yes @vscode/vsce publish -p "$VSCE_PAT" --packagePath "tinkr-companion-${VER}.vsix"
+      - name: Publish to Open VSX
+        if: env.OVSX_TOKEN != ''
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER="${VER#v}"
+          npx --yes ovsx publish "tinkr-companion-${VER}.vsix" -p "$OVSX_TOKEN"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - name: Build JetBrains plugin (.zip)
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER="${VER#v}"
+          cd extensions/jetbrains
+          gradle buildPlugin -PpluginVersion="${VER}" --no-daemon
+          cp "build/distributions/tinkr-jetbrains-${VER}.zip" "../../tinkr-jetbrains-${VER}.zip"
+      - name: Publish to JetBrains Marketplace
+        if: env.JETBRAINS_TOKEN != ''
+        env:
+          VER: ${{ github.ref_name }}
+          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}
+        run: |
+          VER="${VER#v}"
+          cd extensions/jetbrains
+          gradle publishPlugin -PpluginVersion="${VER}" --no-daemon
+      - name: Attach extension packages to GitHub Release
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER="${VER#v}"
+          gh release upload "${{ github.ref_name }}" "tinkr-companion-${VER}.vsix" "tinkr-jetbrains-${VER}.zip" --clobber
