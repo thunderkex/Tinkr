@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/tinkr-core", "crates/tinkr", "crates/tinkr-proxy"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.89"
 license = "Apache-2.0"
