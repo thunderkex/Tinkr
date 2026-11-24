@@ -1,0 +1,27 @@
+[package]
+name = "tinkr-proxy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Loopback send-less + say-less proxy for Tinkr"
+
+[[bin]]
+name = "tinkr-proxy"
+path = "src/main.rs"
+
+[dependencies]
+tinkr-core = { path = "../tinkr-core" }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "signal", "sync", "time"] }
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "http1"] }
+http-body-util = "0.1"
+bytes = "1"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream", "gzip", "brotli", "deflate"] }
+
+[dev-dependencies]
+tempfile.workspace = true
