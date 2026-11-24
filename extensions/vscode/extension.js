@@ -11,7 +11,10 @@ function findTinkrBin() {
   const candidates = [];
   if (isWin) {
     if (process.env.LOCALAPPDATA) {
-      candidates.push(path.join(process.env.LOCALAPPDATA, "tinkr", "bin", exe));
+      candidates.push(
+        path.join(process.env.LOCALAPPDATA, "tinkr", "bin", exe),
+        path.join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links", exe)
+      );
     }
     candidates.push(path.join(os.homedir(), ".cargo", "bin", exe));
   } else {
@@ -46,9 +49,23 @@ function fmtNum(n) {
 
 function prettyLayer(name) {
   const labels = {
-    read_less: "Read-Less (CLI)",
+    read_less: "Read-Less (CLI/MCP)",
     send_less: "Send-Less (Proxy)",
-    say_less: "Say-Less (Rules)",
+    say_less: "Say-Less (Rules · est)",
+  };
+  return labels[name] || name;
+}
+
+function prettyProvider(name) {
+  const labels = {
+    gemini: "Gemini",
+    anthropic: "Anthropic",
+    openai: "OpenAI",
+    vertex: "Vertex AI",
+    azure_openai: "Azure OpenAI",
+    copilot: "Copilot",
+    openai_compatible: "OpenAI-Compat",
+    bedrock: "Bedrock",
   };
   return labels[name] || name;
 }
@@ -102,10 +119,14 @@ function buildTooltip(s) {
   md.appendMarkdown(`---\n\n`);
 
   // Primary metric block + progress bar
+  const countMeta =
+    Number(s.estimated_events || 0) > 0
+      ? `${fmtNum(s.events)} events · ${fmtNum(s.measured_events)} exact · ${fmtNum(s.estimated_events)} est`
+      : `${fmtNum(s.events)} events · ${fmtNum(s.measured_events)} measured`;
   md.appendMarkdown(
     `<table><tr>` +
-      `<td width="120" align="left"><b>Tokens Saved</b></td>` +
-      `<td width="148" align="right"><span style="color:#8b949e;">${fmtNum(s.events)} events · ${fmtNum(s.measured_events)} measured</span></td>` +
+      `<td width="104" align="left"><b>Tokens Saved</b></td>` +
+      `<td width="164" align="right"><span style="color:#8b949e;">${countMeta}</span></td>` +
       `</tr></table>\n\n`
   );
   md.appendMarkdown(
@@ -138,7 +159,7 @@ function buildTooltip(s) {
 
   if (providers.length > 0) {
     md.appendMarkdown(`---\n\n`);
-    md.appendMarkdown(`<table>${kvRows(providers)}</table>\n\n`);
+    md.appendMarkdown(`<table>${kvRows(providers, prettyProvider)}</table>\n\n`);
   }
 
   if (tools.length > 0) {
@@ -155,8 +176,9 @@ function buildTooltip(s) {
   md.appendMarkdown(
     `---\n\n` +
       `<table><tr>` +
-      `<td width="136" align="left"><a href="command:tinkr.doctor">Run Doctor</a></td>` +
-      `<td width="132" align="right"><a href="command:tinkr.refresh">Refresh</a></td>` +
+      `<td width="100" align="left"><a href="command:tinkr.doctor">Run Doctor</a></td>` +
+      `<td width="84" align="center"><a href="command:tinkr.overlap">Overlap</a></td>` +
+      `<td width="84" align="right"><a href="command:tinkr.refresh">Refresh</a></td>` +
       `</tr></table>`
   );
   return md;
@@ -203,13 +225,23 @@ function activate(context) {
     });
   };
 
+  const out = vscode.window.createOutputChannel("Tinkr");
   context.subscriptions.push(
     item,
+    out,
     vscode.commands.registerCommand("tinkr.refresh", refresh),
     vscode.commands.registerCommand("tinkr.doctor", () => {
-      const out = vscode.window.createOutputChannel("Tinkr");
+      out.clear();
       out.show(true);
       runTinkr(["doctor", "--fix"], (err, stdout, stderr) => {
+        out.appendLine(stdout || stderr || (err ? err.message : "done"));
+        refresh();
+      });
+    }),
+    vscode.commands.registerCommand("tinkr.overlap", () => {
+      out.clear();
+      out.show(true);
+      runTinkr(["overlap"], (err, stdout, stderr) => {
         out.appendLine(stdout || stderr || (err ? err.message : "done"));
         refresh();
       });

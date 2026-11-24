@@ -12,6 +12,7 @@
   "contributes": {
     "commands": [
       { "command": "tinkr.doctor", "title": "Tinkr: Doctor" },
+      { "command": "tinkr.overlap", "title": "Tinkr: Overlap Status" },
       { "command": "tinkr.refresh", "title": "Tinkr: Refresh Savings" }
     ]
   }
