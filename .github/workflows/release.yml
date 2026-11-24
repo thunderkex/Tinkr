@@ -3,6 +3,10 @@ on:
   push:
     tags: ["v*"]
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -14,12 +18,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    arch: x64,   ext: zip }
-          - { os: windows-11-arm,   target: aarch64-pc-windows-msvc,   arch: arm64, ext: zip }
-          - { os: macos-13,         target: x86_64-apple-darwin,       arch: x64,   ext: tar.gz }
-          - { os: macos-latest,     target: aarch64-apple-darwin,      arch: arm64, ext: tar.gz }
-          - { os: ubuntu-latest,    target: x86_64-unknown-linux-musl, arch: x64,   ext: tar.gz }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl,arch: arm64, ext: tar.gz }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    arch: x64,   ext: zip,    native: true }
+          - { os: windows-11-arm,   target: aarch64-pc-windows-msvc,   arch: arm64, ext: zip,    native: true }
+          - { os: macos-latest,     target: x86_64-apple-darwin,       arch: x64,   ext: tar.gz, native: false }
+          - { os: macos-latest,     target: aarch64-apple-darwin,      arch: arm64, ext: tar.gz, native: true }
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-musl, arch: x64,   ext: tar.gz, native: true }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl,arch: arm64, ext: tar.gz, native: true }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -27,8 +31,13 @@ jobs:
       - name: Install musl tools
         if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - run: cargo test --workspace --target ${{ matrix.target }}
-      - run: cargo build --release --workspace --target ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with: { key: "release-${{ matrix.target }}" }
+      - name: Test
+        if: matrix.native
+        run: cargo test --workspace --target ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --workspace --target ${{ matrix.target }}
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -56,17 +65,19 @@ jobs:
           name: dist-${{ matrix.target }}
           path: dist/*.{zip,tar.gz}
 
-  checksums:
+  publish:
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with: { path: artifacts, merge-multiple: true }
-      - run: |
+      - name: Generate checksums
+        run: |
           cd artifacts
           sha256sum *.zip *.tar.gz > SHA256SUMS
           cat SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: release-bundle
-          path: artifacts/*
+          files: artifacts/*
+          generate_release_notes: true
