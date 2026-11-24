@@ -1,11 +1,21 @@
 <idea-plugin>
   <id>dev.tinkr.companion</id>
   <name>Tinkr</name>
-  <vendor>thunderkex</vendor>
-  <description>Thin status widget and Tinkr: Doctor action talking only to the local tinkr binary.</description>
+  <vendor email="thunderkex@gmail.com" url="https://github.com/thunderkex/Tinkr">thunderkex</vendor>
+  <description><![CDATA[
+    Thin companion plugin for the local <b>Tinkr</b> token optimizer binary.
+    Provides quick Tools menu actions (<code>Tinkr: Doctor</code> and <code>Tinkr: Gain</code>)
+    to inspect token savings and verify agent configuration without sending any telemetry or network requests.
+  ]]></description>
   <depends>com.intellij.modules.platform</depends>
+  <extensions defaultExtensionNs="com.intellij">
+    <notificationGroup id="Tinkr" displayType="BALLOON"/>
+  </extensions>
   <actions>
     <action id="Tinkr.Doctor" class="dev.tinkr.TinkrDoctorAction" text="Tinkr: Doctor" description="Run tinkr doctor --fix">
+      <add-to-group group-id="ToolsMenu" anchor="last"/>
+    </action>
+    <action id="Tinkr.Gain" class="dev.tinkr.TinkrGainAction" text="Tinkr: Gain" description="Show Tinkr token savings summary">
       <add-to-group group-id="ToolsMenu" anchor="last"/>
     </action>
   </actions>
