@@ -11,9 +11,9 @@ NestedInstallerFiles:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/thunderkex/Tinkr/releases/download/v0.1.0/tinkr-0.1.0-windows-x64.zip
-    InstallerSha256: REPLACE_WITH_X64_SHA256
+    InstallerSha256: 742C987B1EF72CB8B9E9F5459EC025D591FDC5A8476B13D0C06F4FAD2103031F
   - Architecture: arm64
     InstallerUrl: https://github.com/thunderkex/Tinkr/releases/download/v0.1.0/tinkr-0.1.0-windows-arm64.zip
-    InstallerSha256: REPLACE_WITH_ARM64_SHA256
+    InstallerSha256: B5B0276FFA7A75BF6BD05C796DB0A68461B6DC0F4447B344004464757211D73B
 ManifestType: installer
 ManifestVersion: 1.9.0
