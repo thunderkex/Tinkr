@@ -1,7 +1,7 @@
 pub mod adapters;
 
 use bytes::Bytes;
-use futures_util::TryStreamExt;
+use futures_util::{Stream, TryStreamExt};
 use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::{
     body::{Frame, Incoming},
@@ -13,8 +13,10 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    path::Path,
+    path::{Path, PathBuf},
+    pin::Pin,
     sync::Arc,
+    task::{Context, Poll},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tinkr_core::{
@@ -22,6 +24,7 @@ use tinkr_core::{
     platform::{fsx, Paths},
     provider::Provider,
     recall::RecallStore,
+    say_less,
 };
 use tokio::net::TcpListener;
 
@@ -208,6 +211,134 @@ fn full_body(b: impl Into<Bytes>) -> BoxBody {
     Full::new(b.into()).map_err(|never| match never {}).boxed()
 }
 
+fn usage_tokens_from_json(v: &serde_json::Value) -> Option<u64> {
+    v["usage"]["output_tokens"]
+        .as_u64()
+        .or_else(|| v["usage"]["completion_tokens"].as_u64())
+        .or_else(|| v["response"]["usage"]["output_tokens"].as_u64())
+        .or_else(|| v["message"]["usage"]["output_tokens"].as_u64())
+        .or_else(|| v["usageMetadata"]["candidatesTokenCount"].as_u64())
+}
+
+pub fn extract_output_tokens(bytes: &[u8]) -> Option<u64> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let trimmed = text.trim();
+    if trimmed.starts_with('{') {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if let Some(n) = usage_tokens_from_json(&v) {
+                return Some(n);
+            }
+        }
+    }
+    let mut best: Option<u64> = None;
+    for line in text.lines() {
+        let payload = line.trim().strip_prefix("data:").map(str::trim);
+        let Some(p) = payload else {
+            continue;
+        };
+        if p.is_empty() || p == "[DONE]" || !p.starts_with('{') {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(p) {
+            if let Some(n) = usage_tokens_from_json(&v) {
+                best = Some(best.map_or(n, |cur| cur.max(n)));
+            }
+        }
+    }
+    best
+}
+
+const SAY_LESS_TAIL_CAP: usize = 64 * 1024;
+
+struct SayLessTapMeta {
+    ledger_db: PathBuf,
+    provider: Provider,
+    tool: String,
+    tail: Vec<u8>,
+    recorded: bool,
+}
+
+impl SayLessTapMeta {
+    fn push_bytes(&mut self, chunk: &[u8]) {
+        if chunk.len() >= SAY_LESS_TAIL_CAP {
+            self.tail.clear();
+            self.tail
+                .extend_from_slice(&chunk[chunk.len() - SAY_LESS_TAIL_CAP..]);
+        } else {
+            let overflow = (self.tail.len() + chunk.len()).saturating_sub(SAY_LESS_TAIL_CAP);
+            if overflow > 0 {
+                self.tail.drain(..overflow);
+            }
+            self.tail.extend_from_slice(chunk);
+        }
+    }
+
+    fn flush(&mut self) {
+        if self.recorded {
+            return;
+        }
+        self.recorded = true;
+        let Some(after) = extract_output_tokens(&self.tail) else {
+            return;
+        };
+        let Some(before) = say_less::estimate_before_tokens(after) else {
+            return;
+        };
+        if let Ok(ledger) = Ledger::open(&self.ledger_db) {
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let _ = ledger.record(&Event {
+                ts,
+                layer: Layer::SayLess,
+                provider: self.provider,
+                tool: self.tool.clone(),
+                session: None,
+                before,
+                after,
+                kind: CountKind::Estimated,
+                recall_id: None,
+            });
+        }
+    }
+}
+
+struct SayLessTapStream<S> {
+    inner: Pin<Box<S>>,
+    meta: SayLessTapMeta,
+}
+
+impl<S> Stream for SayLessTapStream<S>
+where
+    S: Stream<Item = Result<Frame<Bytes>, std::io::Error>>,
+{
+    type Item = Result<Frame<Bytes>, std::io::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.as_mut().get_mut();
+        match this.inner.as_mut().poll_next(cx) {
+            Poll::Ready(Some(Ok(frame))) => {
+                if let Some(data) = frame.data_ref() {
+                    this.meta.push_bytes(data);
+                }
+                Poll::Ready(Some(Ok(frame)))
+            }
+            Poll::Ready(None) => {
+                this.meta.flush();
+                Poll::Ready(None)
+            }
+            other => other,
+        }
+    }
+}
+
+impl<S> Drop for SayLessTapStream<S> {
+    fn drop(&mut self) {
+        self.meta.flush();
+    }
+}
+
 fn plain_response(status: StatusCode, msg: impl Into<Bytes>) -> Response<BoxBody> {
     let mut resp = Response::new(full_body(msg));
     *resp.status_mut() = status;
@@ -373,6 +504,7 @@ async fn proxy_request(
         }
     };
 
+    let resp_ok = resp.status().is_success();
     let mut builder = Response::builder().status(resp.status());
     for (k, v) in resp.headers() {
         let name = k.as_str();
@@ -385,7 +517,25 @@ async fn proxy_request(
         .bytes_stream()
         .map_ok(Frame::data)
         .map_err(std::io::Error::other);
-    let body: BoxBody = BodyExt::boxed(StreamBody::new(stream));
+    let body: BoxBody = if transformed.say_less_applied && resp_ok {
+        if let Some(paths) = &state.cfg.paths {
+            let tapped = SayLessTapStream {
+                inner: Box::pin(stream),
+                meta: SayLessTapMeta {
+                    ledger_db: paths.ledger_db(),
+                    provider: transformed.provider,
+                    tool: route_name.to_string(),
+                    tail: Vec::new(),
+                    recorded: false,
+                },
+            };
+            BodyExt::boxed(StreamBody::new(tapped))
+        } else {
+            BodyExt::boxed(StreamBody::new(stream))
+        }
+    } else {
+        BodyExt::boxed(StreamBody::new(stream))
+    };
     Ok(builder.body(body).unwrap_or_else(|_| {
         plain_response(
             StatusCode::BAD_GATEWAY,

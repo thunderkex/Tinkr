@@ -55,7 +55,7 @@ async fn spawn_mock_upstream() -> (
                                     );
                                 }
                                 if path.contains("/stream") {
-                                    let sse = "data: {\"chunk\":1}\n\ndata: {\"chunk\":2}\n\ndata: [DONE]\n\n";
+                                    let sse = "data: {\"chunk\":1}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":130}}\n\ndata: [DONE]\n\n";
                                     return Ok(Response::builder()
                                         .status(StatusCode::OK)
                                         .header("content-type", "text/event-stream")
@@ -65,7 +65,7 @@ async fn spawn_mock_upstream() -> (
                                 Ok(Response::builder()
                                     .status(StatusCode::OK)
                                     .header("content-type", "application/json")
-                                    .body(Full::new(Bytes::from("{\"ok\":true}")))
+                                    .body(Full::new(Bytes::from("{\"ok\":true,\"usage\":{\"output_tokens\":65}}")))
                                     .unwrap())
                             }
                         }),
@@ -400,5 +400,89 @@ fn ssrf_allowlist_and_utf8_redaction() {
         tinkr_proxy::redact_secret("🔑🔑🔑🔑🔑🔑🔑🔑🔑"),
         "🔑🔑🔑🔑***"
     );
-    assert_eq!(tinkr_proxy::redact_secret("sk-ant-1234567890"), "sk-a***");
+    assert_eq!(
+        tinkr_proxy::redact_secret("sk-ant-1234567890"),
+        "sk-a***"
+    );
+}
+
+#[tokio::test]
+async fn proxy_records_say_less_from_json_and_sse_usage() {
+    assert_eq!(
+        tinkr_proxy::extract_output_tokens(br#"{"usage":{"output_tokens":130}}"#),
+        Some(130)
+    );
+    assert_eq!(
+        tinkr_proxy::extract_output_tokens(br#"{"usage":{"completion_tokens":80}}"#),
+        Some(80)
+    );
+    assert_eq!(
+        tinkr_proxy::extract_output_tokens(
+            br#"{"usageMetadata":{"candidatesTokenCount":95}}"#
+        ),
+        Some(95)
+    );
+    assert_eq!(
+        tinkr_proxy::extract_output_tokens(
+            b"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"output_tokens\":1}}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":130}}\n\ndata: [DONE]\n\n"
+        ),
+        Some(130)
+    );
+
+    let (up_addr, _) = spawn_mock_upstream().await;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = tinkr_core::platform::Paths {
+        config: dir.path().join("cfg"),
+        data: dir.path().join("data"),
+        cache: dir.path().join("cache"),
+    };
+    let mut cfg = ProxyConfig {
+        paths: Some(paths.clone()),
+        ..Default::default()
+    };
+    cfg.routes.insert(
+        "mock-anthropic".into(),
+        Route {
+            upstream: format!("http://{up_addr}"),
+            provider: "anthropic".into(),
+        },
+    );
+    let (proxy_addr, _handle) = spawn_proxy(0, cfg).await.unwrap();
+    let client = reqwest::Client::new();
+
+    let req_body = json!({
+        "model": "claude-sonnet-4-5",
+        "messages": [{ "role": "user", "content": "hi" }]
+    });
+    let r = client
+        .post(format!("http://{proxy_addr}/mock-anthropic/v1/messages"))
+        .body(serde_json::to_vec(&req_body).unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let _ = r.text().await.unwrap();
+
+    let r2 = client
+        .post(format!(
+            "http://{proxy_addr}/mock-anthropic/v1/messages/stream"
+        ))
+        .body(serde_json::to_vec(&req_body).unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r2.status(), StatusCode::OK);
+    let _ = r2.text().await.unwrap();
+
+    let ledger = tinkr_core::ledger::Ledger::open(&paths.ledger_db()).unwrap();
+    let summary = ledger.summary(None).unwrap();
+    let say = summary
+        .by_layer
+        .get("say_less")
+        .expect("say_less layer must be recorded");
+    assert_eq!(say.events, 2);
+    assert_eq!(say.estimated_events, 2);
+    assert_eq!(say.after, 195);
+    assert_eq!(say.before, 300);
+    assert_eq!(say.saved, 105);
 }
