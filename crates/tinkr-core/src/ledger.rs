@@ -103,6 +103,13 @@ CREATE TABLE IF NOT EXISTS events(
   recall_id TEXT
 );
 CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
+CREATE TABLE IF NOT EXISTS recalls(
+  id INTEGER PRIMARY KEY,
+  ts INTEGER NOT NULL,
+  recall_id TEXT NOT NULL,
+  tool TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS recalls_ts ON recalls(ts);
 ";
 
 impl Ledger {
@@ -160,14 +167,41 @@ impl Ledger {
         Ok(self.conn.last_insert_rowid())
     }
 
+    pub fn record_recall(&self, recall_id: &str, ts: i64) -> Result<()> {
+        let id_clean = recall_id.trim().to_ascii_lowercase();
+        let like_pat = format!("{id_clean}%");
+        let tool: String = self
+            .conn
+            .query_row(
+                "SELECT tool FROM events WHERE recall_id = ?1 OR recall_id LIKE ?2
+                 ORDER BY id DESC LIMIT 1",
+                params![id_clean, like_pat],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "unknown".to_string());
+        self.conn.execute(
+            "INSERT INTO recalls(ts, recall_id, tool) VALUES(?1, ?2, ?3)",
+            params![ts, id_clean, tool],
+        )?;
+        Ok(())
+    }
+
     pub fn recall_count(&self, tool: &str, since: i64) -> Result<u64> {
         let n: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM events WHERE tool=?1 AND ts>=?2 AND recall_id IS NOT NULL
-             AND layer='read_less'",
+            "SELECT COUNT(*) FROM recalls WHERE tool=?1 AND ts>=?2",
             params![tool, since],
             |r| r.get(0),
         )?;
         Ok(n as u64)
+    }
+
+    pub fn has_session_event(&self, layer: Layer, session: &str) -> Result<bool> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM events WHERE layer=?1 AND session=?2",
+            params![layer.as_str(), session],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
     }
 
     pub fn summary(&self, since: Option<i64>) -> Result<Summary> {

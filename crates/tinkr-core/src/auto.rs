@@ -97,7 +97,7 @@ mod tests {
             .unwrap()
             .as_secs() as i64;
         assert!(!should_backoff(&l, "git-log"));
-        for i in 0..3 {
+        for i in 0..10 {
             l.record(&Event {
                 ts: now - i,
                 layer: Layer::ReadLess,
@@ -110,6 +110,10 @@ mod tests {
                 recall_id: Some(format!("abcde{i}")),
             })
             .unwrap();
+        }
+        assert!(!should_backoff(&l, "git-log"));
+        for i in 0..3 {
+            l.record_recall(&format!("abcde{i}"), now - i).unwrap();
         }
         assert!(should_backoff(&l, "git-log"));
         assert!(!should_backoff(&l, "ls"));
