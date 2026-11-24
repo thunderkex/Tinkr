@@ -1,0 +1,78 @@
+id = "rtk"
+name = "RTK (Rust Token Killer)"
+homepage = "https://github.com/rtk-ai/rtk"
+license_note = "rtk: BUSL-1.1 + Apache-2.0; rtk-oss: Apache-2.0 (same binary name `rtk`; `rtk-proxy` is separate)"
+doc_version_checked = "master (rtk / rtk-oss)"
+doc_date_checked = "2026-11-24"
+layers = ["read", "send"]
+
+[detect]
+executables = ["rtk", "rtk-proxy"]
+# Disambiguate from unrelated packages named `rtk`: RTK provides `rtk gain`.
+verify_args = ["gain", "--help"]
+processes = ["rtk-proxy"]
+ports = []
+services = ["rtk-proxy"]
+agent_hooks = ["rtk hook", "rtk-rewrite", "rtk git", "rtk cargo"]
+env_vars = ["RTK_EDITION", "RTK_PROXY_URL"]
+mcp_entries = []
+skills_or_plugins = ["rtk"]
+rules_markers = ["rtk bypass", "rtk recall"]
+state_dirs = ["~/.config/rtk", "~/.local/share/rtk", "~/.gemini/config/plugins/rtk"]
+
+[detect.packages]
+winget = ["rtk-ai.rtk"]
+brew = ["rtk-ai/tap/rtk", "rtk-ai/tap/rtk-oss"]
+cargo = ["rtk"]
+pip = []
+npm = []
+scoop = []
+
+[capabilities]
+commands_covered = ["git", "ls", "grep", "cargo", "npm", "pytest", "docker", "kubectl"]
+agents_supported = ["claude-code", "codex", "cursor", "antigravity"]
+
+[[capabilities.features]]
+text = "Transparent PreToolUse shell command rewriting and output compression (60%-90% claimed in public docs)"
+source_url = "https://github.com/rtk-ai/rtk"
+date = "2026-11-24"
+
+[[capabilities.features]]
+text = "Dual editions: standard `rtk` (BUSL-1.1 + Apache-2.0) and pure open-source `rtk-oss` (Apache-2.0)"
+source_url = "https://github.com/rtk-ai/rtk"
+date = "2026-11-24"
+
+[[capabilities.features]]
+text = "Built-in savings analytics via `rtk gain` and `rtk gain --daily`"
+source_url = "https://github.com/rtk-ai/rtk"
+date = "2026-11-24"
+
+[[capabilities.does_better_than_tinkr]]
+text = "More mature, broader command-specific CLI filter library built specifically for shell output compression"
+source_url = "https://github.com/rtk-ai/rtk"
+date = "2026-11-24"
+
+[[capabilities.does_better_than_tinkr]]
+text = "Built-in daily breakdown dashboard (`rtk gain --daily`) and established `rtk init --global` workflow"
+source_url = "https://github.com/rtk-ai/rtk"
+date = "2026-11-24"
+
+[[conflicts]]
+layer = "read"
+verdict = "redundant"
+summary = "Two PreToolUse hooks rewriting the same shell command can double-compress output or conflict on command rewriting"
+
+[[conflicts]]
+layer = "send"
+verdict = "harmful"
+summary = "If `rtk-proxy` is also active on the same agent, two loopback proxies compete for the same base-URL env var"
+
+[compat]
+notes = "Can coexist safely per-agent (e.g. RTK in Claude Code, Tinkr in Gemini CLI/Cursor) or with Tinkr skipping commands already rewritten by `rtk` and skipping output with `[full output: rtk recall ...]`."
+output_markers = ["[full output: rtk recall", "rtk recall "]
+off_switch_hint = "Disable RTK's hook in your agent config or plugin manager (e.g. `rtk init --uninstall` if supported by your version)."
+
+[compat.can_coexist_with_tinkr]
+read = "conditional"
+send = "no"
+say = "yes"

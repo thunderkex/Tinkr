@@ -1,0 +1,73 @@
+id = "caveman"
+name = "Caveman (@caveman-ai/cli)"
+homepage = "https://github.com/JuliusBrussee/caveman"
+license_note = "Open-source skill, Claude Code plugin, and local proxy (`@caveman-ai/cli`)"
+doc_version_checked = "JuliusBrussee/caveman public docs"
+doc_date_checked = "2026-11-24"
+layers = ["say", "send", "routing"]
+
+[detect]
+executables = ["caveman"]
+verify_args = ["--version"]
+processes = ["caveman"]
+ports = []
+services = ["caveman"]
+agent_hooks = ["caveman", "/caveman"]
+env_vars = ["CAVEMAN_MODE", "CAVEMAN_PROXY_URL"]
+mcp_entries = ["caveman"]
+skills_or_plugins = ["caveman", "caveman@caveman"]
+rules_markers = ["/caveman", "/caveman-compress", "caveman-speak"]
+state_dirs = ["~/.caveman", "~/.config/caveman", "~/.claude/plugins/caveman"]
+
+[detect.packages]
+winget = []
+brew = []
+cargo = []
+pip = []
+npm = ["@caveman-ai/cli"]
+scoop = []
+
+[capabilities]
+commands_covered = []
+agents_supported = ["claude-code", "codex", "gemini-cli"]
+
+[[capabilities.features]]
+text = "Terse-output voice skill (`/caveman`) and static instruction file shrinking (`/caveman-compress` for `CLAUDE.md`)"
+source_url = "https://github.com/JuliusBrussee/caveman"
+date = "2026-11-24"
+
+[[capabilities.features]]
+text = "Local compression proxy and automatic coding-agent setup via `npx @caveman-ai/cli@latest` or Claude plugin marketplace (`caveman@caveman`)"
+source_url = "https://github.com/JuliusBrussee/caveman"
+date = "2026-11-24"
+
+[[capabilities.does_better_than_tinkr]]
+text = "Dedicated `/caveman` slash-command toggle and `/caveman-compress` workflow for shrinking static instruction files like `CLAUDE.md`"
+source_url = "https://github.com/JuliusBrussee/caveman"
+date = "2026-11-24"
+
+[[capabilities.does_better_than_tinkr]]
+text = "Native Claude Code plugin marketplace distribution (`caveman@caveman`) and ultra-terse voice presets"
+source_url = "https://github.com/JuliusBrussee/caveman"
+date = "2026-11-24"
+
+[[conflicts]]
+layer = "say"
+verdict = "redundant"
+summary = "Caveman's terse-output skill and Tinkr's say-less rule both inject reply-brevity instructions into the system prompt, wasting input tokens and risking conflicting style rules"
+
+[[conflicts]]
+layer = "send"
+verdict = "harmful"
+summary = "When Caveman's local proxy is enabled on an agent, running Tinkr's proxy on the same agent competes for the base-URL setting"
+
+[compat]
+notes = "Only one voice rule should be active per agent. Tinkr's read-less CLI hooks can coexist cleanly with Caveman's voice skill when Tinkr skips its say-less rule for that agent."
+output_markers = []
+off_switch_hint = "Toggle off with `/caveman` or disable the `caveman@caveman` plugin in Claude Code."
+
+[compat.can_coexist_with_tinkr]
+read = "yes"
+send = "no"
+say = "no"
+routing = "yes"

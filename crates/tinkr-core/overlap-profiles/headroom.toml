@@ -1,0 +1,78 @@
+id = "headroom"
+name = "Headroom (headroom-ai)"
+homepage = "https://github.com/headroomlabs-ai/headroom"
+license_note = "Open-source context optimization library, proxy, MCP server, and agent wrapper (`headroom-ai`)"
+doc_version_checked = "headroom-ai public docs"
+doc_date_checked = "2026-11-24"
+layers = ["send", "say", "memory"]
+
+[detect]
+executables = ["headroom"]
+verify_args = ["--version"]
+processes = ["headroom"]
+ports = [8787]
+services = ["headroom", "headroom-proxy"]
+agent_hooks = ["headroom wrap", "headroom proxy"]
+env_vars = ["HEADROOM_API_KEY", "HEADROOM_PORT", "HEADROOM_MODE", "HEADROOM_OUTPUT_SHAPING"]
+mcp_entries = ["headroom", "headroom_compress", "headroom_retrieve", "headroom_stats"]
+skills_or_plugins = ["headroom"]
+rules_markers = ["headroom"]
+state_dirs = ["~/.headroom", "~/.config/headroom"]
+
+[detect.packages]
+winget = []
+brew = []
+cargo = []
+pip = ["headroom-ai"]
+npm = []
+scoop = []
+
+[capabilities]
+commands_covered = []
+agents_supported = ["claude-code", "cursor", "aider"]
+
+[[capabilities.features]]
+text = "Local HTTP proxy (`headroom proxy --port 8787`) and agent wrappers (`headroom wrap claude|cursor|aider`) for Anthropic and OpenAI traffic"
+source_url = "https://headroomlabs.ai"
+date = "2026-11-24"
+
+[[capabilities.features]]
+text = "Reversible compression (CCR) with MCP tools (`headroom_compress`, `headroom_retrieve`, `headroom_stats`)"
+source_url = "https://github.com/headroomlabs-ai/headroom"
+date = "2026-11-24"
+
+[[capabilities.features]]
+text = "Inline Python and TypeScript SDK (`compress(messages)`) for custom LLM applications and RAG pipelines"
+source_url = "https://github.com/headroomlabs-ai/headroom"
+date = "2026-11-24"
+
+[[capabilities.does_better_than_tinkr]]
+text = "Provides native Python and TypeScript inline libraries (`compress(messages)`) for application-level and RAG compression, which Tinkr does not ship"
+source_url = "https://github.com/headroomlabs-ai/headroom"
+date = "2026-11-24"
+
+[[capabilities.does_better_than_tinkr]]
+text = "Includes cross-agent memory and failure-learning features beyond stateless compression"
+source_url = "https://headroomlabs.ai"
+date = "2026-11-24"
+
+[[conflicts]]
+layer = "send"
+verdict = "harmful"
+summary = "Both Headroom (`:8787`) and Tinkr redirect `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` to a loopback proxy; running both on the same agent causes last-writer-wins or unwanted proxy chaining"
+
+[[conflicts]]
+layer = "say"
+verdict = "redundant"
+summary = "If Headroom's optional output-shaping flags are enabled alongside Tinkr's say-less rule, two output-style instructions stack"
+
+[compat]
+notes = "Single proxy per agent by default. Tinkr read-less (CLI hooks) can safely coexist with Headroom's proxy (`send` layer), while Tinkr yields the proxy layer when Headroom is active on port 8787."
+output_markers = ["headroom_retrieve", "[headroom:"]
+off_switch_hint = "Stop `headroom proxy` or run your agent without `headroom wrap` / unset `ANTHROPIC_BASE_URL` & `OPENAI_BASE_URL`."
+
+[compat.can_coexist_with_tinkr]
+read = "yes"
+send = "no"
+say = "conditional"
+memory = "yes"
