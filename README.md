@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="Tinkr" width="96" height="96" />
+</p>
+
 # Tinkr
 
 > **Tinkr optimizes your agent's context so you don't have to.**
