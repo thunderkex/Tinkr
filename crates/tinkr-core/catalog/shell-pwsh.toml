@@ -1,0 +1,31 @@
+[[rules]]
+id = "ls"
+kind = "list_dir"
+read_only = true
+executables = ["ls", "dir", "gci", "get-childitem", "tree", "eza", "exa", "lsd"]
+any_subcommand = true
+strategy = "list_dir"
+
+[[rules]]
+id = "find"
+kind = "find"
+read_only = true
+executables = ["find", "where", "fd", "locate"]
+any_subcommand = true
+strategy = "find_group"
+
+[[rules]]
+id = "grep"
+kind = "grep"
+read_only = true
+executables = ["grep", "egrep", "fgrep", "rg", "ag", "ack", "select-string", "sls", "findstr"]
+any_subcommand = true
+strategy = "grep_group"
+
+[[rules]]
+id = "read"
+kind = "file_read"
+read_only = true
+executables = ["cat", "type", "get-content", "gc", "bat", "head", "tail", "more"]
+any_subcommand = true
+strategy = "file_read"

@@ -1,3 +1,4 @@
+pub mod catalog;
 pub mod classify;
 pub mod kinds;
 pub mod normalize;
@@ -26,6 +27,7 @@ pub struct Outcome {
     pub recall_id: Option<String>,
     pub decision: Decision,
     pub kind: Kind,
+    pub profile_id: &'static str,
 }
 
 pub struct Ctx<'a> {
@@ -34,7 +36,14 @@ pub struct Ctx<'a> {
     pub tokenizer: TokenizerKind,
 }
 
-fn passthrough(raw: &[u8], before: u64, kc: CountKind, kind: Kind, why: &'static str) -> Outcome {
+fn passthrough(
+    raw: &[u8],
+    before: u64,
+    kc: CountKind,
+    kind: Kind,
+    profile_id: &'static str,
+    why: &'static str,
+) -> Outcome {
     Outcome {
         output: raw.to_vec(),
         before,
@@ -43,18 +52,23 @@ fn passthrough(raw: &[u8], before: u64, kc: CountKind, kind: Kind, why: &'static
         recall_id: None,
         decision: Decision::Passthrough(why),
         kind,
+        profile_id,
     }
 }
 
 pub fn process(cmd: &str, exit_code: i32, raw: &[u8], ctx: &Ctx) -> Outcome {
-    let kind = classify::classify(cmd).unwrap_or(Kind::Generic);
+    let matched_rule = classify::match_catalog(cmd);
+    let kind = matched_rule.map(|r| r.raw.kind).unwrap_or(Kind::Generic);
+    let profile_id = matched_rule
+        .map(|r| r.raw.id.as_str())
+        .unwrap_or("generic");
     if raw.contains(&0) {
         let c = tokenizer::count("", ctx.tokenizer);
-        return passthrough(raw, c.tokens, c.kind, kind, "binary");
+        return passthrough(raw, c.tokens, c.kind, kind, profile_id, "binary");
     }
     if crate::overlap::has_foreign_marker(raw, &[]) {
         let c = tokenizer::count_bytes(raw, ctx.tokenizer);
-        return passthrough(raw, c.tokens, c.kind, kind, "foreign-optimizer-marker");
+        return passthrough(raw, c.tokens, c.kind, kind, profile_id, "foreign-optimizer-marker");
     }
     let text = normalize::normalize(raw);
     let c = tokenizer::count(&text, ctx.tokenizer);
@@ -87,6 +101,7 @@ pub fn process(cmd: &str, exit_code: i32, raw: &[u8], ctx: &Ctx) -> Outcome {
                         recall_id: h.recall_id,
                         decision: Decision::Compressed { level: 2 },
                         kind,
+                        profile_id,
                     };
                 }
             }
@@ -94,21 +109,32 @@ pub fn process(cmd: &str, exit_code: i32, raw: &[u8], ctx: &Ctx) -> Outcome {
     }
 
     if before < defaults::MIN_PAYLOAD_TOKENS {
-        return passthrough(raw, before, c.kind, kind, "small");
+        return passthrough(raw, before, c.kind, kind, profile_id, "small");
     }
     let mut saw_unverified = false;
     for level in [2u8, 1u8] {
-        let out = kinds::apply(kind, &text, level);
+        let out = match matched_rule {
+            Some(rule) => kinds::apply_catalog(rule, &text, level),
+            None => kinds::apply(kind, &text, level),
+        };
         if out == text {
             continue;
         }
-        if verify::verify(&text, &out, exit_code).is_err() {
+        let verified = if out.trim_start().starts_with('{') || out.trim_start().starts_with('[') {
+            verify::critical_lines(&text)
+                .into_iter()
+                .all(|cl| out.contains(cl.trim_matches([',', ' '])))
+                || verify::verify(&text, &out, exit_code).is_ok()
+        } else {
+            verify::verify(&text, &out, exit_code).is_ok()
+        };
+        if !verified {
             saw_unverified = true;
             continue;
         }
         let after = tokenizer::count(&out, ctx.tokenizer).tokens;
         if !defaults::worth_it(before, after + 14) {
-            return passthrough(raw, before, c.kind, kind, "not-worth-it");
+            return passthrough(raw, before, c.kind, kind, profile_id, "not-worth-it");
         }
         let (id, final_text, final_after) = match ctx.recall {
             Some(store) => match store.put(raw) {
@@ -118,12 +144,14 @@ pub fn process(cmd: &str, exit_code: i32, raw: &[u8], ctx: &Ctx) -> Outcome {
                     let fa = tokenizer::count(&t, ctx.tokenizer).tokens;
                     (Some(id), t, fa)
                 }
-                Err(_) => return passthrough(raw, before, c.kind, kind, "recall-store-error"),
+                Err(_) => {
+                    return passthrough(raw, before, c.kind, kind, profile_id, "recall-store-error")
+                }
             },
             None => (None, format!("{}\n", out.trim_end_matches('\n')), after),
         };
         if !defaults::worth_it(before, final_after) {
-            return passthrough(raw, before, c.kind, kind, "not-worth-it");
+            return passthrough(raw, before, c.kind, kind, profile_id, "not-worth-it");
         }
         return Outcome {
             output: final_text.into_bytes(),
@@ -133,6 +161,7 @@ pub fn process(cmd: &str, exit_code: i32, raw: &[u8], ctx: &Ctx) -> Outcome {
             recall_id: id,
             decision: Decision::Compressed { level },
             kind,
+            profile_id,
         };
     }
     passthrough(
@@ -140,6 +169,7 @@ pub fn process(cmd: &str, exit_code: i32, raw: &[u8], ctx: &Ctx) -> Outcome {
         before,
         c.kind,
         kind,
+        profile_id,
         if saw_unverified {
             "verify-failed"
         } else {

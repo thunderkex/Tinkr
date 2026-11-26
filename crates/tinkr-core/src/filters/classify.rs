@@ -1,4 +1,7 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Kind {
     GitStatus,
     GitLog,
@@ -137,143 +140,12 @@ fn base(word: &str) -> String {
     w.strip_suffix(".exe").map(str::to_string).unwrap_or(w)
 }
 
-fn classify_words(words: &[String]) -> Option<Kind> {
-    let mut i = 0;
-    while i < words.len()
-        && (words[i].contains('=') && !words[i].starts_with('-')
-            || matches!(
-                base(&words[i]).as_str(),
-                "env" | "sudo" | "time" | "command" | "call"
-            ))
-    {
-        i += 1;
-    }
-    let first = base(words.get(i)?);
-    let args: Vec<&str> = words[i + 1..].iter().map(String::as_str).collect();
-    let sub = |skip_flags_with_arg: &[&str]| -> Option<String> {
-        let mut j = 0;
-        while j < args.len() {
-            let a = args[j];
-            if skip_flags_with_arg.contains(&a) {
-                j += 2;
-            } else if a.starts_with('-') || a.starts_with('+') {
-                j += 1;
-            } else {
-                return Some(a.to_lowercase());
-            }
-        }
-        None
-    };
-    Some(match first.as_str() {
-        "git" => match sub(&["-C", "-c", "--git-dir", "--work-tree"])?.as_str() {
-            "status" => Kind::GitStatus,
-            "log" => Kind::GitLog,
-            "diff" | "show" => Kind::GitDiff,
-            "branch" | "remote" | "tag" | "stash" | "fetch" | "pull" | "push" | "clone" | "add"
-            | "commit" | "checkout" | "switch" | "merge" | "rebase" | "reflog" | "blame" => {
-                Kind::GitOther
-            }
-            _ => return None,
-        },
-        "ls" | "dir" | "gci" | "get-childitem" | "tree" | "eza" | "exa" | "lsd" => Kind::ListDir,
-        "find" | "where" | "fd" | "locate" => Kind::Find,
-        "cat" | "type" | "get-content" | "gc" | "bat" | "head" | "tail" | "more" => Kind::FileRead,
-        "grep" | "egrep" | "fgrep" | "rg" | "ag" | "ack" | "select-string" | "sls" | "findstr" => {
-            Kind::Grep
-        }
-        "cargo" => match sub(&["--manifest-path", "-p", "--package", "--target"])?.as_str() {
-            "test" | "nextest" | "bench" => Kind::Test,
-            "build" | "check" | "clippy" | "doc" | "install" | "fetch" | "update" | "b" | "c"
-            | "t" => {
-                if matches!(sub(&[]).as_deref(), Some("t")) {
-                    Kind::Test
-                } else {
-                    Kind::Build
-                }
-            }
-            _ => return None,
-        },
-        "pytest" | "py.test" | "jest" | "vitest" | "mocha" | "ctest" | "rspec" | "phpunit"
-        | "nosetests" => Kind::Test,
-        "python" | "python3" | "py" => {
-            if args
-                .windows(2)
-                .any(|w| w[0] == "-m" && matches!(w[1], "pytest" | "unittest"))
-            {
-                Kind::Test
-            } else if args.windows(2).any(|w| w[0] == "-m" && w[1] == "pip") {
-                Kind::Build
-            } else {
-                return None;
-            }
-        }
-        "go" => match sub(&[])?.as_str() {
-            "test" => Kind::Test,
-            "build" | "install" | "get" | "vet" | "mod" => Kind::Build,
-            _ => return None,
-        },
-        "npm" | "yarn" | "pnpm" | "bun" => match sub(&[])?.as_str() {
-            "test" | "t" => Kind::Test,
-            "install" | "i" | "ci" | "add" | "build" | "update" | "upgrade" | "audit" => {
-                Kind::Build
-            }
-            "run" => {
-                let target = args
-                    .iter()
-                    .skip_while(|a| **a != "run")
-                    .nth(1)
-                    .copied()
-                    .unwrap_or("");
-                if target.starts_with("test") {
-                    Kind::Test
-                } else if target.starts_with("build") {
-                    Kind::Build
-                } else {
-                    return None;
-                }
-            }
-            _ => return None,
-        },
-        "dotnet" => match sub(&[])?.as_str() {
-            "test" => Kind::Test,
-            "build" | "restore" | "publish" | "pack" => Kind::Build,
-            _ => return None,
-        },
-        "mvn" | "mvnw" | "gradle" | "gradlew" => {
-            if args.contains(&"test") {
-                Kind::Test
-            } else {
-                Kind::Build
-            }
-        }
-        "pip" | "pip3" | "tsc" | "make" | "cmake" | "msbuild" | "ninja" | "gcc" | "g++"
-        | "clang" | "rustc" | "javac" | "poetry" | "uv" => Kind::Build,
-        "docker" | "podman" | "docker-compose" => match sub(&[])?.as_str() {
-            "build" | "buildx" | "pull" | "push" | "compose"
-                if args.iter().any(|a| matches!(*a, "build" | "pull" | "push"))
-                    || sub(&[]).as_deref() == Some("build") =>
-            {
-                Kind::Build
-            }
-            "ps" | "images" | "logs" | "ls" | "inspect" | "stats" | "compose" | "container"
-            | "image" | "volume" | "network" => Kind::Docker,
-            _ => return None,
-        },
-        "kubectl" | "k" | "oc" | "helm" => match sub(&["-n", "--namespace", "--context"])?.as_str()
-        {
-            "get" | "describe" | "logs" | "top" | "list" | "status" | "events" => Kind::Kube,
-            _ => return None,
-        },
-        _ => return None,
-    })
-}
-
-pub fn classify(cmd: &str) -> Option<Kind> {
+pub fn match_catalog(cmd: &str) -> Option<&'static super::catalog::CatalogRule> {
     let (segs, shaped) = split_segments(cmd);
     if shaped || segs.is_empty() {
         return None;
     }
-    let mut kind = None;
+    let mut matched = None;
     for s in &segs {
         let b = base(&s[0]);
         if matches!(
@@ -282,9 +154,23 @@ pub fn classify(cmd: &str) -> Option<Kind> {
         ) {
             continue;
         }
-        kind = Some(classify_words(s)?);
+        matched = Some(super::catalog::match_words(s)?);
     }
-    kind
+    matched
+}
+
+pub fn is_segment_read_only(seg: &str) -> Option<bool> {
+    match_catalog(seg).map(|r| r.raw.read_only)
+}
+
+pub fn profile_id_of(cmd: &str) -> &'static str {
+    match_catalog(cmd)
+        .map(|r| r.raw.id.as_str())
+        .unwrap_or("generic")
+}
+
+pub fn classify(cmd: &str) -> Option<Kind> {
+    match_catalog(cmd).map(|r| r.raw.kind)
 }
 
 pub fn first_word(cmd: &str) -> Option<String> {

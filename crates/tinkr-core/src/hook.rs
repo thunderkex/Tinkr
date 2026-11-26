@@ -90,11 +90,11 @@ pub fn rewrite_command(
     classify::classify(trimmed)?;
     let segs = classify::command_segments(trimmed)?;
     for seg in &segs {
-        let kind = classify::classify(seg)?;
+        let ro = classify::is_segment_read_only(seg)?;
         if perms.denied(seg) || perms.denied(trimmed) {
             return None;
         }
-        let ok = kind.read_only()
+        let ok = ro
             || agent == Agent::Antigravity
             || (agent == Agent::Claude && (perms.allowed(seg) || perms.allowed(trimmed)));
         if !ok {
@@ -125,7 +125,7 @@ pub fn handle(agent: Agent, input: &str, exe: &str, perms: &Permissions) -> Opti
         let new_cmd = rewrite_command(Agent::Antigravity, tool, cmd, exe, perms)?;
         let all_read_only = classify::command_segments(cmd.trim()).is_some_and(|segs| {
             segs.iter()
-                .all(|s| classify::classify(s).is_some_and(Kind::read_only))
+                .all(|s| classify::is_segment_read_only(s).unwrap_or(false))
         });
         let decision = if all_read_only { "allow" } else { "ask" };
         return Some(

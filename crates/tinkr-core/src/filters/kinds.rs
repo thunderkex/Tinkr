@@ -1,6 +1,99 @@
-use super::{classify::Kind, verify};
+use super::{
+    catalog::{CatalogRule, Strategy},
+    classify::Kind,
+    verify,
+};
 use regex::Regex;
+use serde_json::Value;
 use std::sync::LazyLock;
+
+pub fn apply_catalog(rule: &CatalogRule, text: &str, level: u8) -> String {
+    if level <= 1 {
+        return generic(text, false);
+    }
+    let prefiltered = if rule.drop_set().is_some() || rule.raw.drop_pass_lines {
+        let dset = rule.drop_set();
+        let kset = rule.keep_set();
+        let label = if rule.raw.omitted_label.is_empty() {
+            "progress lines"
+        } else {
+            rule.raw.omitted_label.as_str()
+        };
+        drop_lines(
+            text,
+            |l| {
+                let explicitly_kept = kset.is_some_and(|ks| ks.is_match(l));
+                if explicitly_kept {
+                    return false;
+                }
+                (rule.raw.drop_pass_lines && verify::is_pass_line(l))
+                    || dset.is_some_and(|ds| ds.is_match(l))
+            },
+            label,
+        )
+    } else {
+        text.to_string()
+    };
+
+    match rule.raw.strategy {
+        Strategy::GitStatus => generic(&git_status(&prefiltered), true),
+        Strategy::GitLog => {
+            if let Some((rendered, has_patches)) = git_log(&prefiltered) {
+                generic(&rendered, !has_patches)
+            } else {
+                generic(&prefiltered, true)
+            }
+        }
+        Strategy::GitDiff => generic(&git_diff(&prefiltered), true),
+        Strategy::ListDir => {
+            if let Some(rendered) = list_dir(&prefiltered) {
+                let truncate = rendered.lines().count() > 1000;
+                generic(&rendered, truncate)
+            } else {
+                generic(&prefiltered, true)
+            }
+        }
+        Strategy::FindGroup => {
+            let s = find_group(&prefiltered).unwrap_or(prefiltered);
+            generic(&s, true)
+        }
+        Strategy::GrepGroup => {
+            let s = grep_group(&prefiltered).unwrap_or(prefiltered);
+            generic(&s, true)
+        }
+        Strategy::DropLines => generic(&prefiltered, true),
+        Strategy::TableSqueeze => generic(&table_squeeze(&prefiltered), true),
+        Strategy::AutoStructured => apply_auto_structured(&prefiltered),
+        Strategy::FileRead => {
+            if crate::outliers::looks_like_logs(&prefiltered) {
+                crate::outliers::dedup_lines_preserving_outliers(&prefiltered)
+            } else {
+                generic(&prefiltered, false)
+            }
+        }
+    }
+}
+
+fn apply_auto_structured(text: &str) -> String {
+    let trimmed = text.trim();
+    if ((trimmed.starts_with('{') && trimmed.ends_with('}'))
+        || (trimmed.starts_with('[') && trimmed.ends_with(']')))
+        && serde_json::from_str::<Value>(trimmed).is_ok()
+    {
+        if let Some(c) = crate::compress::compress_tool_result(
+            trimmed,
+            crate::tokenizer::TokenizerKind::Exact,
+            None,
+            false,
+        ) {
+            return c.text;
+        }
+    }
+    if crate::outliers::looks_like_logs(text) {
+        return crate::outliers::dedup_lines_preserving_outliers(text);
+    }
+    generic(&table_squeeze(text), true)
+}
 
 pub fn apply(kind: Kind, text: &str, level: u8) -> String {
     if level <= 1 {
@@ -149,7 +242,16 @@ fn git_status(text: &str) -> String {
         }
         if let Some(rest) = l.strip_prefix('\t') {
             if let Some((k, v)) = rest.split_once(':') {
-                out.push(format!("  {}: {}", k.trim(), v.trim()));
+                let code = match k.trim() {
+                    "modified" => "M",
+                    "new file" => "A",
+                    "deleted" => "D",
+                    "renamed" => "R",
+                    "copied" => "C",
+                    "typechange" => "T",
+                    other => other,
+                };
+                out.push(format!("  {code} {}", v.trim()));
                 continue;
             }
             out.push(format!("  {}", rest.trim_end()));

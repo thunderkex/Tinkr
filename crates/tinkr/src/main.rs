@@ -810,12 +810,17 @@ fn cmd_run(
     if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
         let _ = auto::sync_net_disables(&ledger, &mut health, &health_path);
     }
+    let profile_id = tinkr_core::filters::classify::profile_id_of(&cmd);
     let kind_name = hook::kind_of(&cmd).name();
-    let breaker_key = format!("read_less:{kind_name}");
+    let breaker_key = format!("read_less:{profile_id}");
+    let legacy_key = format!("read_less:{kind_name}");
     if health.is_disabled(&breaker_key)
+        || health.is_disabled(&legacy_key)
         || Ledger::open(&paths.ledger_db())
             .ok()
-            .is_some_and(|l| auto::should_backoff(&l, kind_name))
+            .is_some_and(|l| {
+                auto::should_backoff(&l, profile_id) || auto::should_backoff(&l, kind_name)
+            })
     {
         io::stdout().write_all(&raw)?;
         return Ok(ExitCode::from(code as u8));
@@ -845,7 +850,7 @@ fn cmd_run(
                         ts,
                         layer: Layer::ReadLess,
                         provider: Provider::None,
-                        tool: out.kind.name().to_string(),
+                        tool: out.profile_id.to_string(),
                         session: None,
                         before: out.before,
                         after: out.after,

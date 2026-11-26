@@ -1,0 +1,78 @@
+[[rules]]
+id = "jest-vitest"
+kind = "test"
+read_only = false
+executables = ["jest", "vitest", "mocha"]
+any_subcommand = true
+strategy = "drop_lines"
+omitted_label = "passing suites/tests"
+drop_pass_lines = true
+drop_regex = [
+  "^\\s*PASS\\s+\\S+",
+  "^\\s*[✓✔√]\\s+",
+  "^\\s*RUN\\s+v\\d+\\.",
+  "^\\s*transforming\\.\\.\\.",
+]
+
+[[rules]]
+id = "jest-vitest"
+kind = "test"
+read_only = false
+executables = ["npm", "pnpm", "yarn", "bun"]
+subcommands = ["test", "t", "vitest", "jest"]
+two_word_subcommands = ["run test", "run test:unit", "run test:ci"]
+strategy = "drop_lines"
+omitted_label = "passing suites/tests"
+drop_pass_lines = true
+drop_regex = [
+  "^>\\s+\\S+@\\S+\\s+",
+  "^\\s*PASS\\s+\\S+",
+  "^\\s*[✓✔√]\\s+",
+  "^\\s*RUN\\s+v\\d+\\.",
+]
+
+[[rules]]
+id = "tsc"
+kind = "build"
+read_only = true
+executables = ["tsc", "vue-tsc"]
+any_subcommand = true
+strategy = "drop_lines"
+omitted_label = "compiler wrapper lines"
+drop_regex = [
+  "^>\\s+\\S+@\\S+\\s+",
+  "^\\s*Starting compilation in watch mode",
+]
+
+[[rules]]
+id = "eslint"
+kind = "build"
+read_only = true
+executables = ["eslint", "biome"]
+any_subcommand = true
+strategy = "drop_lines"
+omitted_label = "linter debug/wrapper lines"
+drop_regex = [
+  "^>\\s+\\S+@\\S+\\s+",
+  "^\\s*eslint:[a-z-]+\\s+",
+  "^\\s*\\d+:\\d+\\s+warning\\s+.*\\s+(prettier/prettier|indent|quotes|semi)\\s*$",
+]
+
+[[rules]]
+id = "pnpm"
+kind = "build"
+read_only = false
+executables = ["npm", "pnpm", "yarn", "bun"]
+subcommands = ["install", "i", "ci", "add", "build", "update", "upgrade", "audit", "tsc", "eslint", "lint"]
+two_word_subcommands = ["run build", "run build:prod", "run typecheck", "run lint"]
+strategy = "drop_lines"
+omitted_label = "package/build progress lines"
+drop_regex = [
+  "^>\\s+.*$",
+  "^npm (http|timing|sill|info|notice)\\b",
+  "^\\s*(Downloading|Fetching|Resolving|Unpacking|Progress:)\\b",
+  "^Packages: \\+\\d+",
+  "^\\++\\s*$",
+  "^\\s*transforming \\(\\d+\\)",
+  "^\\s*✓ \\d+ modules transformed",
+]

@@ -1,0 +1,87 @@
+[[rules]]
+id = "go-test"
+kind = "test"
+read_only = false
+executables = ["go"]
+subcommands = ["test"]
+strategy = "drop_lines"
+omitted_label = "passing Go tests"
+drop_pass_lines = true
+drop_regex = [
+  "^=== (RUN|PAUSE|CONT)\\s+",
+  "^\\s*--- PASS:",
+  "^ok\\s+\\S+\\s+[\\d.]+s",
+  "^\\?\\s+\\S+\\s+\\[no test files\\]",
+  "^go: (downloading|finding)\\s+",
+]
+
+[[rules]]
+id = "go-build"
+kind = "build"
+read_only = false
+executables = ["go"]
+subcommands = ["build", "install", "get", "vet", "mod"]
+strategy = "drop_lines"
+omitted_label = "Go module download lines"
+drop_regex = [
+  "^go: (downloading|finding|extracting)\\s+",
+]
+
+[[rules]]
+id = "rspec"
+kind = "test"
+read_only = false
+executables = ["rspec"]
+any_subcommand = true
+strategy = "drop_lines"
+omitted_label = "passing RSpec examples"
+drop_pass_lines = true
+drop_regex = [
+  "^\\.+\\*?\\.*$",
+  "^Randomized with seed \\d+",
+  "^\\s+is expected to .*$",
+  "^\\s+returns 200 ok$",
+  "^\\s+behaves like .*$",
+]
+
+[[rules]]
+id = "dotnet-test"
+kind = "test"
+read_only = false
+executables = ["dotnet", "ctest", "phpunit", "nosetests"]
+subcommands = ["test"]
+any_subcommand_for = ["ctest", "phpunit", "nosetests"]
+strategy = "drop_lines"
+omitted_label = "passing/restore lines"
+drop_pass_lines = true
+drop_regex = [
+  "^\\s*(Determining projects to restore|Restored\\s|Restore complete)",
+  "^\\s*Passed\\s+\\S+",
+]
+
+[[rules]]
+id = "jvm-test"
+kind = "test"
+read_only = false
+executables = ["mvn", "mvnw", "gradle", "gradlew"]
+arg_contains = ["test"]
+strategy = "drop_lines"
+omitted_label = "passing/progress lines"
+drop_pass_lines = true
+drop_regex = [
+  "^\\[INFO\\] (Scanning|Downloading|Downloaded|Building|Compiling)",
+]
+
+[[rules]]
+id = "build"
+kind = "build"
+read_only = false
+executables = ["dotnet", "mvn", "mvnw", "gradle", "gradlew", "make", "cmake", "msbuild", "ninja", "gcc", "g++", "clang", "rustc", "javac"]
+any_subcommand = true
+strategy = "drop_lines"
+omitted_label = "build progress lines"
+drop_regex = [
+  "^\\s*(Determining projects to restore|Restored\\s|Restore complete)",
+  "^make\\[\\d+\\]: (Entering|Leaving)",
+  "^\\s*\\[\\s*\\d+%\\] Building ",
+]

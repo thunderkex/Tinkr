@@ -1,0 +1,55 @@
+[[rules]]
+id = "pytest"
+kind = "test"
+read_only = false
+executables = ["pytest", "py.test"]
+any_subcommand = true
+strategy = "drop_lines"
+omitted_label = "passing/progress lines"
+drop_pass_lines = true
+drop_regex = [
+  "^\\s*(platform |rootdir:|configfile:|plugins:|cachedir:|collecting \\.\\.\\.)",
+  "^=+ test session starts =+$",
+  "^\\s*[.s]+\\s*\\[\\s*\\d+%\\]\\s*$",
+  "^\\s*\\.+\\s*$",
+]
+
+[[rules]]
+id = "pytest"
+kind = "test"
+read_only = false
+executables = ["python", "python3", "py"]
+arg_pairs = ["-m pytest", "-m unittest"]
+strategy = "drop_lines"
+omitted_label = "passing/progress lines"
+drop_pass_lines = true
+drop_regex = [
+  "^\\s*(platform |rootdir:|configfile:|plugins:|cachedir:|collecting \\.\\.\\.)",
+  "^=+ test session starts =+$",
+  "^\\s*[.s]+\\s*\\[\\s*\\d+%\\]\\s*$",
+]
+
+[[rules]]
+id = "pip"
+kind = "build"
+read_only = false
+executables = ["pip", "pip3", "uv", "poetry"]
+any_subcommand = true
+strategy = "drop_lines"
+omitted_label = "package download/cache lines"
+drop_regex = [
+  "^\\s*(Collecting |Using cached |Requirement already satisfied:|Obtaining |Preparing metadata |Downloading |Building wheel for |Created wheel for |Stored in directory:|Installing collected packages:)",
+  "^\\s*━+",
+]
+
+[[rules]]
+id = "pip"
+kind = "build"
+read_only = false
+executables = ["python", "python3", "py"]
+arg_pairs = ["-m pip"]
+strategy = "drop_lines"
+omitted_label = "package download/cache lines"
+drop_regex = [
+  "^\\s*(Collecting |Using cached |Requirement already satisfied:|Obtaining |Preparing metadata |Downloading |Building wheel for |Created wheel for |Stored in directory:)",
+]

@@ -1,0 +1,46 @@
+[[rules]]
+id = "git-status"
+kind = "git_status"
+read_only = true
+executables = ["git"]
+flags_with_arg = ["-C", "-c", "--git-dir", "--work-tree"]
+subcommands = ["status"]
+strategy = "git_status"
+
+[[rules]]
+id = "git-log"
+kind = "git_log"
+read_only = true
+executables = ["git"]
+flags_with_arg = ["-C", "-c", "--git-dir", "--work-tree"]
+subcommands = ["log"]
+strategy = "git_log"
+
+[[rules]]
+id = "git-diff"
+kind = "git_diff"
+read_only = true
+executables = ["git"]
+flags_with_arg = ["-C", "-c", "--git-dir", "--work-tree"]
+subcommands = ["diff", "show"]
+strategy = "git_diff"
+
+[[rules]]
+id = "git"
+kind = "git_other"
+read_only = false
+executables = ["git"]
+flags_with_arg = ["-C", "-c", "--git-dir", "--work-tree"]
+subcommands = [
+  "branch", "remote", "tag", "stash", "fetch", "pull", "push",
+  "clone", "add", "commit", "checkout", "switch", "merge", "rebase",
+  "reflog", "blame",
+]
+strategy = "drop_lines"
+omitted_label = "progress lines"
+drop_regex = [
+  "^remote: (Counting|Compressing|Enumerating|Total)",
+  "^(Receiving|Resolving|Unpacking|Counting|Compressing|Writing|Enumerating) (objects|deltas)",
+  "^Delta compression",
+  "^Total \\d+",
+]

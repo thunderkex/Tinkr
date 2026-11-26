@@ -1,0 +1,67 @@
+[[rules]]
+id = "docker-build"
+kind = "build"
+read_only = false
+executables = ["docker", "podman"]
+subcommands = ["build", "buildx", "pull", "push"]
+two_word_subcommands = ["compose build", "compose pull", "compose push"]
+strategy = "drop_lines"
+omitted_label = "image layer/cache lines"
+drop_regex = [
+  "^#\\d+ (CACHED|\\[|DONE|sha256|resolve|transferring|exporting|naming to)",
+  "^\\s*[0-9a-f]{12}: (Waiting|Preparing|Layer already exists|Downloading|Verifying Checksum|Download complete|Extracting|Pull complete|Pushing|Pushed)",
+]
+
+[[rules]]
+id = "docker"
+kind = "docker"
+read_only = true
+executables = ["docker", "podman", "docker-compose"]
+subcommands = ["ps", "images", "logs", "ls", "inspect", "stats"]
+two_word_subcommands = ["compose ps", "compose logs", "container ls", "image ls", "volume ls", "network ls"]
+strategy = "auto_structured"
+omitted_label = "container noise lines"
+
+[[rules]]
+id = "kubectl"
+kind = "kube"
+read_only = true
+executables = ["kubectl", "k", "oc", "helm"]
+flags_with_arg = ["-n", "--namespace", "--context", "-l", "--selector", "-o", "--output", "-c", "--container"]
+subcommands = ["get", "describe", "logs", "top", "list", "status", "events"]
+strategy = "auto_structured"
+omitted_label = "cluster lines"
+
+[[rules]]
+id = "gh"
+kind = "kube"
+read_only = true
+executables = ["gh"]
+flags_with_arg = ["-R", "--repo", "-H", "--hostname", "-q", "--jq", "-L", "--limit"]
+subcommands = ["status", "api", "search"]
+two_word_subcommands = [
+  "pr list", "pr view", "pr diff", "pr checks", "pr status",
+  "issue list", "issue view", "issue status",
+  "run list", "run view",
+  "release list", "release view",
+]
+strategy = "auto_structured"
+omitted_label = "passing checks / GitHub metadata lines"
+drop_pass_lines = true
+drop_regex = [
+  "^\\S+\\s+pass\\s+\\d+[smh]",
+]
+
+[[rules]]
+id = "aws"
+kind = "kube"
+read_only = true
+executables = ["aws"]
+flags_with_arg = ["--region", "--profile", "--output", "--endpoint-url", "--query"]
+two_word_subcommands = ["s3 ls", "sts get-caller-identity", "logs filter-log-events", "logs get-log-events"]
+second_word_prefixes = ["describe-", "list-", "get-"]
+strategy = "auto_structured"
+omitted_label = "AWS table border/repetitive lines"
+drop_regex = [
+  "^\\s*\\+-[-+]+\\s*$",
+]

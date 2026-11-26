@@ -1,0 +1,30 @@
+[[rules]]
+id = "cargo-test"
+kind = "test"
+read_only = false
+executables = ["cargo"]
+flags_with_arg = ["--manifest-path", "-p", "--package", "--target", "--bin", "--test"]
+subcommands = ["test", "nextest", "bench", "t"]
+strategy = "drop_lines"
+omitted_label = "passing/progress lines"
+drop_pass_lines = true
+drop_regex = [
+  "^\\s*(Compiling|Downloaded|Downloading|Fresh|Checking|Locking|Updating|Blocking)\\s",
+  "^\\s*Finished `(test|bench|dev|release)` profile",
+  "^\\s*Running (unittests|tests/)",
+  "^\\s*Doc-tests\\s+",
+  "^\\s*running \\d+ tests?\\s*$",
+]
+
+[[rules]]
+id = "cargo-build"
+kind = "build"
+read_only = false
+executables = ["cargo"]
+flags_with_arg = ["--manifest-path", "-p", "--package", "--target", "--bin"]
+subcommands = ["build", "check", "clippy", "doc", "install", "fetch", "update", "b", "c"]
+strategy = "drop_lines"
+omitted_label = "progress lines"
+drop_regex = [
+  "^\\s*(Compiling|Downloaded|Downloading|Fresh|Checking|Locking|Updating|Adding|Blocking|Packaging|Verifying|Unpacking|Installing|Fetching)\\s",
+]
