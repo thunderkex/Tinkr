@@ -1,4 +1,8 @@
-use crate::{ledger::Ledger, platform::fsx, Result};
+use crate::{
+    ledger::{Ledger, ProfileNetStatus},
+    platform::fsx,
+    Result,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -7,6 +11,7 @@ use std::{
 };
 
 pub const BACKOFF_RECALL_THRESHOLD: u64 = 3;
+pub const MIN_NET_DISABLE_SAMPLES: u64 = 20;
 
 pub fn should_backoff(ledger: &Ledger, tool: &str) -> bool {
     let now = SystemTime::now()
@@ -14,7 +19,39 @@ pub fn should_backoff(ledger: &Ledger, tool: &str) -> bool {
         .unwrap_or_default()
         .as_secs() as i64;
     let since = now - 86_400;
-    ledger.recall_count(tool, since).unwrap_or(0) >= BACKOFF_RECALL_THRESHOLD
+    if ledger.recall_count(tool, since).unwrap_or(0) >= BACKOFF_RECALL_THRESHOLD {
+        return true;
+    }
+    is_net_negative_disabled(ledger, tool)
+}
+
+pub fn is_net_negative_disabled(ledger: &Ledger, tool: &str) -> bool {
+    ledger
+        .negative_net_profiles(MIN_NET_DISABLE_SAMPLES)
+        .map(|v| v.iter().any(|p| p.tool == tool))
+        .unwrap_or(false)
+}
+
+pub fn sync_net_disables(
+    ledger: &Ledger,
+    health: &mut HealthState,
+    health_path: &Path,
+) -> Vec<ProfileNetStatus> {
+    let bad = ledger
+        .negative_net_profiles(MIN_NET_DISABLE_SAMPLES)
+        .unwrap_or_default();
+    let mut changed = false;
+    for p in &bad {
+        let msg = format!("auto-disabled: {}", p.reason);
+        if health.disabled.get(&p.key) != Some(&msg) {
+            health.disabled.insert(p.key.clone(), msg);
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = health.save(health_path);
+    }
+    bad
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

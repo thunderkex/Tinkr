@@ -59,17 +59,26 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
             cmd_setup(&n, &paths, yes, all)?;
         }
         Some("gain") => {
-            let s = Ledger::open(&paths.ledger_db())?.summary(None)?;
+            let ledger = Ledger::open(&paths.ledger_db())?;
+            let health_path = paths.data.join("health.json");
+            let mut health = HealthState::load(&health_path);
+            let _ = auto::sync_net_disables(&ledger, &mut health, &health_path);
+            let s = ledger.summary(None)?;
             if args.iter().any(|a| a == "--json") {
                 println!("{}", serde_json::to_string_pretty(&s)?);
             } else {
                 println!(
-                    "{} events, {} -> {} tokens, saved {} ({:.1}%) [{} measured, {} estimated]",
+                    "{} events, {} -> {} tokens | gross {:+} | NET {:+} ({:.1}%) [rules -{}, markers -{}, recalls -{} ({:.1}%)] [{} measured, {} estimated]",
                     s.events,
                     s.before,
                     s.after,
-                    s.saved,
-                    s.percent,
+                    s.gross_saved,
+                    s.net_saved,
+                    s.net_percent,
+                    s.rule_tokens,
+                    s.marker_tokens,
+                    s.recall_tokens,
+                    s.recall_rate_pct,
                     s.measured_events,
                     s.estimated_events
                 );
@@ -77,8 +86,26 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
                     println!("By layer:");
                     for (name, l) in &s.by_layer {
                         println!(
-                            "  {name:<12} {} -> {} tokens (saved {})",
-                            l.before, l.after, l.saved
+                            "  {name:<18} {:>8} -> {:<8} | NET {:+8} ({:>5.1}%, recall {:.1}%)",
+                            l.before, l.after, l.net_saved, l.net_percent, l.recall_rate_pct
+                        );
+                    }
+                }
+                if !s.by_tool.is_empty() {
+                    println!("By command:");
+                    for (name, l) in &s.by_tool {
+                        println!(
+                            "  {name:<18} {:>8} -> {:<8} | NET {:+8} ({:>5.1}%, {} samples, recall {:.1}%)",
+                            l.before, l.after, l.net_saved, l.net_percent, l.events, l.recall_rate_pct
+                        );
+                    }
+                }
+                if !s.by_agent.is_empty() {
+                    println!("By agent:");
+                    for (name, l) in &s.by_agent {
+                        println!(
+                            "  {name:<18} {:>8} -> {:<8} | NET {:+8} ({:>5.1}%)",
+                            l.before, l.after, l.net_saved, l.net_percent
                         );
                     }
                 }
@@ -86,18 +113,15 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
                     println!("By provider:");
                     for (name, l) in &s.by_provider {
                         println!(
-                            "  {name:<18} {} -> {} tokens (saved {})",
-                            l.before, l.after, l.saved
+                            "  {name:<18} {:>8} -> {:<8} | NET {:+8} ({:>5.1}%)",
+                            l.before, l.after, l.net_saved, l.net_percent
                         );
                     }
                 }
-                if !s.by_tool.is_empty() {
-                    println!("By tool:");
-                    for (name, l) in &s.by_tool {
-                        println!(
-                            "  {name:<18} {} -> {} tokens (saved {})",
-                            l.before, l.after, l.saved
-                        );
+                if !s.auto_disabled.is_empty() {
+                    println!("Auto-disabled profiles (NET <= 0 over 20+ samples):");
+                    for p in &s.auto_disabled {
+                        println!("  {:<24} {}", p.key, p.reason);
                     }
                 }
             }
@@ -620,6 +644,9 @@ fn cmd_doctor(
     let exe = std::env::current_exe().unwrap_or_default();
     let health_path = paths.data.join("health.json");
     let mut health = HealthState::load(&health_path);
+    if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
+        let _ = auto::sync_net_disables(&ledger, &mut health, &health_path);
+    }
 
     println!("tinkr doctor ({VERSION}, os={})", n.name());
     println!(
@@ -639,7 +666,10 @@ fn cmd_doctor(
         println!("  remote:  {}", labels.join(", "));
     }
     if !health.disabled.is_empty() {
-        println!("  circuit-breakers tripped: {}", health.disabled.len());
+        println!("  circuit-breakers / auto-disabled profiles: {}", health.disabled.len());
+        for (k, reason) in &health.disabled {
+            println!("    - {k}: {reason}");
+        }
         if fix {
             health.reset_all(&health_path)?;
             println!("  -> reset all circuit-breakers");
@@ -777,6 +807,9 @@ fn cmd_run(
 
     let health_path = paths.data.join("health.json");
     let mut health = HealthState::load(&health_path);
+    if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
+        let _ = auto::sync_net_disables(&ledger, &mut health, &health_path);
+    }
     let kind_name = hook::kind_of(&cmd).name();
     let breaker_key = format!("read_less:{kind_name}");
     if health.is_disabled(&breaker_key)

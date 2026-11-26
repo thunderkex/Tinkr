@@ -94,6 +94,13 @@ pub fn handle_request_with_ledger(
                 }
                 "tinkr_compress" => {
                     let text = args["text"].as_str().unwrap_or("");
+                    if ledger.is_some_and(|l| crate::auto::should_backoff(l, "mcp-compress")) {
+                        return Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": { "content": [{ "type": "text", "text": text }] }
+                        }));
+                    }
                     let out = match compress::compress_tool_result(
                         text,
                         TokenizerKind::Exact,
@@ -103,17 +110,24 @@ pub fn handle_request_with_ledger(
                         Some(c) => {
                             if c.before > c.after {
                                 if let Some(l) = ledger {
-                                    let _ = l.record(&Event {
-                                        ts: now_ts(),
-                                        layer: Layer::ReadLess,
-                                        provider: Provider::None,
-                                        tool: "mcp-compress".to_string(),
-                                        session: None,
-                                        before: c.before,
-                                        after: c.after,
-                                        kind: CountKind::Measured,
-                                        recall_id: c.recall_id,
-                                    });
+                                    let _ = l.record_net(
+                                        &Event {
+                                            ts: now_ts(),
+                                            layer: Layer::ReadLess,
+                                            provider: Provider::None,
+                                            tool: "mcp-compress".to_string(),
+                                            session: None,
+                                            before: c.before,
+                                            after: c.after,
+                                            kind: CountKind::Measured,
+                                            recall_id: c.recall_id,
+                                        },
+                                        &crate::ledger::NetMeta {
+                                            agent: "mcp".into(),
+                                            marker_tokens: crate::ledger::DEFAULT_MARKER_TOKENS,
+                                            rule_tokens: 0,
+                                        },
+                                    );
                                 }
                             }
                             c.text
@@ -143,6 +157,15 @@ pub fn handle_request_with_ledger(
                                 } else {
                                     (std::borrow::Cow::Borrowed(&full_bytes), None)
                                 };
+
+                            if ledger.is_some_and(|l| crate::auto::should_backoff(l, "mcp-read")) {
+                                let raw_out = String::from_utf8_lossy(&slice_cow).into_owned();
+                                return Some(json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "result": { "content": [{ "type": "text", "text": raw_out }] }
+                                }));
+                            }
 
                             let cache_path = recall.dir().join("read-cache.json");
                             let mut cache = crate::read_dedup::ReadCache::load(&cache_path);
