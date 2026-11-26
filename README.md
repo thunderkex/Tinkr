@@ -6,9 +6,9 @@
 
 > **Tinkr optimizes your agent's context so you don't have to.**
 
-A single static Rust binary (`tinkr` + `tinkr-proxy`) that automatically cuts LLM token usage across AI coding agents and IDEs. Install once, confirm once, never configure.
+A single static Rust binary (`tinkr` + `tinkr-proxy`) that automatically cuts NET LLM token usage across AI coding agents and IDEs. Install once, confirm once, never configure.
 
-- **Local-only & private** — no telemetry, no TLS interception, auth headers untouched.
+- **Local-only & private** — no telemetry, no TLS interception, auth headers untouched, secrets redacted in local recall storage (`0600` / user-only Windows ACL).
 - **Fail-open** — on any error, timeout, or uncertainty, passes original output through unchanged.
 - **Fully reversible** — backs up every edited file (`*.tinkr.bak`) and restores byte-for-byte with `tinkr undo`.
 
@@ -46,9 +46,9 @@ Apply changes? [y]es (auto-detected) / [a]ll (every supported tool) / [n]o:
 | Command | What it does |
 |---|---|
 | `tinkr` | First run = setup; afterwards = status |
-| `tinkr gain [--json]` | Token savings by layer, provider, and tool |
-| `tinkr doctor [--fix] [--network]` | Check OS, shell, coverage table, and repair config drift |
-| `tinkr recall <id>` | Print the exact original uncompressed output |
+| `tinkr gain [--why <cmd>] [--json]` | NET token savings by layer, command, agent, and provider, or explain tuning for `<cmd>` |
+| `tinkr doctor [--fix] [--network]` | Check OS, shell, coverage table, auto-disabled profiles, and repair config drift |
+| `tinkr recall <id \| --purge>` | Print the original uncompressed output, or purge local recall items |
 | `tinkr undo [--purge]` | Restore every edited config & env var byte-for-byte (`--purge` also deletes Tinkr data) |
 | `tinkr pause` / `tinkr resume` | Pause or resume globally (add `--here` for the current repo only) |
 | `tinkr overlap` | Detect competing token optimizers (RTK, Headroom, Caveman, unknown) and manage coexistence |
@@ -62,7 +62,7 @@ Tinkr checks (read-only, local-only) whether another token optimizer is already 
 - **Default is always keep yours:** in non-interactive mode, CI, or `--yes`, Tinkr leaves your existing tool active and automatically yields only its own overlapping layer.
 - **Nothing is ever uninstalled or modified in another tool's directories.**
 - **Your choice per tool or per agent:** run `tinkr overlap` to keep your current tool (`keep`), switch reversibly with a diff preview (`tinkr`, undoable via `tinkr overlap restore <tool>` or `tinkr undo`), run both safely where non-overlapping (`both`), or measure side-by-side in shadow mode without altering agent output (`compare`).
-- **What those tools do that Tinkr does not:** RTK has a broader battle-tested shell-filter catalog and daily CLI dashboard; Headroom ships inline Python/TypeScript SDKs and cross-agent memory/failure-learning; Caveman offers a `/caveman` voice toggle, `/caveman-compress` for `CLAUDE.md`, and Claude plugin marketplace distribution.
+- **What those tools do that Tinkr does not:** RTK's markerless `rtk err` saves slightly more on stateless build-error loops and ships `rtk gain --daily` / `rtk discover`; Headroom ships inline Python/TypeScript `compress(messages)` SDKs and cross-agent memory/failure-learning; Caveman offers an interactive `/caveman` voice toggle, `/caveman-compress` for `CLAUDE.md`, and Claude plugin marketplace distribution.
 
 See [docs/COEXISTENCE.md](docs/COEXISTENCE.md) for full details on what is read, what is never touched, and how coexistence works.
 
@@ -70,22 +70,24 @@ See [docs/COEXISTENCE.md](docs/COEXISTENCE.md) for full details on what is read,
 
 ## How It Works (3 Automatic Layers)
 
-1. **Read less** — Hooks verbose shell output (`git`, `ls`/`dir`/`Get-ChildItem`, `grep`/`rg`, test runners, build tools, `docker`, `kubectl`). Compresses noise while keeping errors, stack traces, and `file:line` references verbatim. Originals stay locally for 7 days (`tinkr recall <id>` or MCP `tinkr_retrieve`).
-2. **Send less** — Loopback proxy (`tinkr-proxy`) compresses large new tool results (JSON, logs, code, CSV, HTML) without touching prompt-cache prefixes or `cache_control` blocks.
-3. **Say less** — Appends a short (≤ 300-token) terse-output rule at the end of the system prompt or rules file. Automatically uses full sentences for security warnings, destructive actions, or confused users, and skips on per-request billing (e.g. Copilot).
+1. **Read less** — Declarative TOML CLI filters (`git`, `cargo`, `pytest`, `jest`/`vitest`, `tsc`, `eslint`, `docker`, `kubectl`, `gh`, `aws`, `npm`/`pnpm`/`pip`, `go test`, `rspec`, `Get-ChildItem`/`Select-String`/`Get-Content`), repeated file-read deduplication (hash stubs & unified diffs), and recall-rate self-tuning. Originals stay locally for 7 days (`tinkr recall <id>` or MCP `tinkr_retrieve`).
+2. **Send less** — Loopback proxy (`tinkr-proxy`) deduplicates repeated file reads in uncached turns and compresses large new JSON, log, CSV, and HTML tool results while keeping first, last, critical, and structural/level outliers — without touching prompt-cache prefixes or `cache_control` blocks.
+3. **Say less** — Appends a short (114-token, ≤ 300-token budget) terse-output rule at the end of the system prompt or rules file. Switches to full sentences for security warnings, destructive actions, ambiguity, or confused users, skips per-request billing (e.g. Copilot), and drops automatically if overhead isn't repaid within 5 turns.
 
 ---
 
-## Proof (Measured on Real Runs)
+## Proof (Measured `o200k_base` NET Savings)
 
-| Workload | Before | After | Saved |
+| Workload | Before | After | NET Saved |
 |---|---:|---:|---:|
-| `cargo test` (80 tests) | 1,426 tok | 211 tok | **−85.2%** |
-| `Get-ChildItem -Recurse` | 2,418 tok | 797 tok | **−67.0%** |
-| Conversation transcript via MCP `tinkr_read` | 157,464 tok | 132,194 tok | **−16.0%** (25,270 tok) |
-| CI fixture suite (`cargo test/build`, `git log/diff`, `ls`, `rg`) | — | — | **≥ 60% median** (all needles preserved) |
+| `cargo test` (400 tests, 1 deep failure) | 6,362 tok | 222 tok | **−96.5%** (+6,140 tok) |
+| `git log -p` (200 commits, schema change) | 43,358 tok | 8,463 tok | **−80.5%** (+34,895 tok) |
+| 2,000-line file read 5× with 2 edits between | 210,229 tok | 42,478 tok | **−79.7%** (+167,527 tok) |
+| `kubectl logs` (3,000 repeats, 1 `OOMKilled`) | 132,536 tok | 173 tok | **−99.9%** (+132,363 tok) |
+| 1.2 MB JSON array (1 `"status":"error"` outlier) | 295,971 tok | 222 tok | **−99.9%** (+295,749 tok) |
+| PowerShell `Get-ChildItem -Recurse` (`node_modules` + `src`) | 12,594 tok | 76 tok | **−99.4%** (+12,518 tok) |
 
-Every compressed output includes a recall marker (e.g. `[tinkr:4762fa | 1,426->211 tok | recall]`) so the agent or user can fetch the exact original anytime.
+Every compressed output includes a recall marker (e.g. `[tinkr:4762fa | 6,362->222 tok | recall]`), and `NET` deducts all injected rules, recall markers, and recall round-trips.
 
 ---
 
@@ -99,11 +101,11 @@ Every compressed output includes a recall marker (e.g. `[tinkr:4762fa | 1,426->2
 
 ## Where We Lose (Honest Limits)
 
-- **Small outputs (< 200 tokens) or < 15% savings:** skipped automatically (0% savings, zero risk).
-- **Cloud-routed IDE features** (some Copilot / Cursor / Windsurf server-side flows): cannot be proxied locally; Tinkr applies local hooks, MCP tools, and rules only.
-- **Signed-request providers (AWS Bedrock SigV4):** proxy passes through untouched; savings come from hooks, MCP, and rules.
-- **Codex CLI hook trust:** Codex asks you to approve new hooks once via `/hooks`; Tinkr never bypasses that.
-- **Corrupt / unparseable configs:** skipped and reported — never guessed or overwritten.
+- **Small outputs (< 200 tokens) or < 15% savings:** passed through unchanged (`0` NET tokens saved, zero risk of marker overhead turning NET negative).
+- **Stateless build-error loops vs markerless filters:** `rtk err` saves ~78 more tokens across 3 `pnpm build` retries (`11,148` vs `11,070` NET tokens) because Tinkr attaches reversible recall markers to each compressed turn.
+- **Unprofitable profiles & short sessions:** profiles with `NET <= 0` over 20+ samples are auto-disabled (`tinkr gain`), and say-less is dropped if its rule overhead isn't repaid within 5 turns.
+- **Cloud-routed IDE features & signed-request APIs (AWS Bedrock SigV4):** cannot be proxied locally; savings come from local hooks, MCP, and rules only.
+- **Codex CLI hook trust & unparseable configs:** Codex asks you to approve new hooks once via `/hooks` (never bypassed); corrupt configs are skipped and reported without guessing.
 
 ---
 

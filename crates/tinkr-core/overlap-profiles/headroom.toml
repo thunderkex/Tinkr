@@ -3,7 +3,7 @@ name = "Headroom (headroom-ai)"
 homepage = "https://github.com/headroomlabs-ai/headroom"
 license_note = "Open-source context optimization library, proxy, MCP server, and agent wrapper (`headroom-ai`)"
 doc_version_checked = "headroom-ai public docs"
-doc_date_checked = "2026-11-24"
+doc_date_checked = "2026-11-26"
 layers = ["send", "say", "memory"]
 
 [detect]
@@ -34,27 +34,27 @@ agents_supported = ["claude-code", "cursor", "aider"]
 [[capabilities.features]]
 text = "Local HTTP proxy (`headroom proxy --port 8787`) and agent wrappers (`headroom wrap claude|cursor|aider`) for Anthropic and OpenAI traffic"
 source_url = "https://headroomlabs.ai"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[capabilities.features]]
 text = "Reversible compression (CCR) with MCP tools (`headroom_compress`, `headroom_retrieve`, `headroom_stats`)"
 source_url = "https://github.com/headroomlabs-ai/headroom"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[capabilities.features]]
 text = "Inline Python and TypeScript SDK (`compress(messages)`) for custom LLM applications and RAG pipelines"
 source_url = "https://github.com/headroomlabs-ai/headroom"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[capabilities.does_better_than_tinkr]]
 text = "Provides native Python and TypeScript inline libraries (`compress(messages)`) for application-level and RAG compression, which Tinkr does not ship"
 source_url = "https://github.com/headroomlabs-ai/headroom"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[capabilities.does_better_than_tinkr]]
-text = "Includes cross-agent memory and failure-learning features beyond stateless compression"
+text = "Includes cross-agent memory and failure-learning features beyond Tinkr's stateless context compression"
 source_url = "https://headroomlabs.ai"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[conflicts]]
 layer = "send"

@@ -2,8 +2,8 @@ id = "rtk"
 name = "RTK (Rust Token Killer)"
 homepage = "https://github.com/rtk-ai/rtk"
 license_note = "rtk: BUSL-1.1 + Apache-2.0; rtk-oss: Apache-2.0 (same binary name `rtk`; `rtk-proxy` is separate)"
-doc_version_checked = "master (rtk / rtk-oss)"
-doc_date_checked = "2026-11-24"
+doc_version_checked = "1.2.1 (rtk / rtk-oss)"
+doc_date_checked = "2026-11-26"
 layers = ["read", "send"]
 
 [detect]
@@ -29,33 +29,33 @@ npm = []
 scoop = []
 
 [capabilities]
-commands_covered = ["git", "ls", "grep", "cargo", "npm", "pytest", "docker", "kubectl"]
+commands_covered = ["git", "ls", "grep", "cargo", "npm", "pnpm", "pytest", "docker", "kubectl"]
 agents_supported = ["claude-code", "codex", "cursor", "antigravity"]
 
 [[capabilities.features]]
 text = "Transparent PreToolUse shell command rewriting and output compression (60%-90% claimed in public docs)"
 source_url = "https://github.com/rtk-ai/rtk"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[capabilities.features]]
 text = "Dual editions: standard `rtk` (BUSL-1.1 + Apache-2.0) and pure open-source `rtk-oss` (Apache-2.0)"
 source_url = "https://github.com/rtk-ai/rtk"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[capabilities.features]]
-text = "Built-in savings analytics via `rtk gain` and `rtk gain --daily`"
+text = "Built-in savings analytics via `rtk gain`, `rtk gain --daily`, and missed-savings scan (`rtk discover`)"
 source_url = "https://github.com/rtk-ai/rtk"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[capabilities.does_better_than_tinkr]]
-text = "More mature, broader command-specific CLI filter library built specifically for shell output compression"
+text = "Markerless error-only filter (`rtk err`) saves slightly more tokens on stateless build-error loops because Tinkr appends reversible `[tinkr:...]` recall markers"
 source_url = "https://github.com/rtk-ai/rtk"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[capabilities.does_better_than_tinkr]]
-text = "Built-in daily breakdown dashboard (`rtk gain --daily`) and established `rtk init --global` workflow"
+text = "Built-in daily breakdown dashboard (`rtk gain --daily`), transcript missed-command scanner (`rtk discover`), and `rtk init --global` workflow"
 source_url = "https://github.com/rtk-ai/rtk"
-date = "2026-11-24"
+date = "2026-11-26"
 
 [[conflicts]]
 layer = "read"

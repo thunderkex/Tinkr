@@ -344,7 +344,7 @@ fn cmd_overlap(
     let state_path = paths.data.join("overlap-state.json");
     let mut state = overlap::OverlapState::load(&state_path);
 
-    let loaded = overlap::load_builtin("2026-11-24");
+    let loaded = overlap::load_builtin("2026-11-26");
     let env = overlap::ScanEnv::real(home.clone(), None);
     let scan_report = overlap::scan(&loaded.profiles, &env);
     let m = Machine::real(home);
@@ -516,7 +516,7 @@ fn cmd_setup(
     let home = n.home_dir()?;
     let state_path = paths.data.join("overlap-state.json");
     let mut overlap_state = overlap::OverlapState::load(&state_path);
-    let loaded_overlap = overlap::load_builtin("2026-11-24");
+    let loaded_overlap = overlap::load_builtin("2026-11-26");
     let scan_env = overlap::ScanEnv::real(home.clone(), None);
     let scan_report = overlap::scan(&loaded_overlap.profiles, &scan_env);
 
@@ -719,7 +719,7 @@ fn cmd_doctor(
     }
 
     let overlap_state = overlap::OverlapState::load(&paths.data.join("overlap-state.json"));
-    let loaded_overlap = overlap::load_builtin("2026-11-24");
+    let loaded_overlap = overlap::load_builtin("2026-11-26");
     let scan_report = overlap::scan(
         &loaded_overlap.profiles,
         &overlap::ScanEnv::real(m.home.clone(), None),
