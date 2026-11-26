@@ -12,7 +12,7 @@ description = "Tinkr optimizes your agent's context so you don't have to."
 
 [workspace.dependencies]
 rusqlite = { version = "0.43", features = ["bundled"] }
-tiktoken-rs = "0.7"
+tiktoken-rs = "0.12"
 sha2 = "0.10"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
