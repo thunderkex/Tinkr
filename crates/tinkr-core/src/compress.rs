@@ -87,28 +87,9 @@ fn compact_json_value(v: &Value, depth: usize) -> Value {
         return v.clone();
     }
     match v {
-        Value::Array(arr) if arr.len() > 20 => {
-            let mut out = Vec::with_capacity(12);
-            for item in arr.iter().take(5) {
-                out.push(compact_json_value(item, depth + 1));
-            }
-            let mut kept_errors = 0;
-            for item in arr.iter().skip(5).take(arr.len().saturating_sub(8)) {
-                let s = item.to_string();
-                if verify::is_critical(&s) && kept_errors < 5 {
-                    out.push(item.clone());
-                    kept_errors += 1;
-                }
-            }
-            out.push(Value::String(format!(
-                "... [{} items omitted] ...",
-                arr.len() - 8 - kept_errors
-            )));
-            for item in arr.iter().skip(arr.len() - 3) {
-                out.push(compact_json_value(item, depth + 1));
-            }
-            Value::Array(out)
-        }
+        Value::Array(arr) if arr.len() > 12 => Value::Array(
+            crate::outliers::compact_json_array(arr, depth, &compact_json_value),
+        ),
         Value::Array(arr) => Value::Array(
             arr.iter()
                 .map(|x| compact_json_value(x, depth + 1))
@@ -134,7 +115,6 @@ fn compress_json(s: &str) -> Option<String> {
 }
 
 fn compress_jsonl(s: &str) -> String {
-    let lines: Vec<&str> = s.lines().filter(|l| !l.trim().is_empty()).collect();
     let compact_line = |l: &str| -> String {
         if let Ok(v) = serde_json::from_str::<Value>(l) {
             serde_json::to_string(&compact_json_value(&v, 0)).unwrap_or_else(|_| l.to_string())
@@ -142,31 +122,7 @@ fn compress_jsonl(s: &str) -> String {
             l.to_string()
         }
     };
-    if lines.len() <= 30 {
-        return lines
-            .iter()
-            .map(|l| compact_line(l))
-            .collect::<Vec<_>>()
-            .join("\n");
-    }
-    let mut out: Vec<String> = lines.iter().take(10).map(|l| compact_line(l)).collect();
-    let mid = &lines[10..lines.len() - 5];
-    let crit: Vec<&str> = mid
-        .iter()
-        .copied()
-        .filter(|l| verify::is_critical(l))
-        .collect();
-    out.push(format!(
-        "[{} JSONL records omitted]",
-        mid.len() - crit.len()
-    ));
-    for l in crit {
-        out.push(compact_line(l));
-    }
-    for l in &lines[lines.len() - 5..] {
-        out.push(compact_line(l));
-    }
-    out.join("\n")
+    crate::outliers::compress_jsonl_preserving_outliers(s, compact_line)
 }
 
 static SCRIPT_STYLE: LazyLock<Regex> = LazyLock::new(|| {
@@ -213,21 +169,7 @@ fn compress_csv(s: &str) -> String {
 }
 
 fn compress_logs(s: &str) -> String {
-    let mut out = Vec::new();
-    let mut dropped = 0usize;
-    for l in s.lines() {
-        let noisy = (l.contains("DEBUG") || l.contains("TRACE")) && !verify::is_critical(l);
-        if noisy {
-            dropped += 1;
-        } else {
-            out.push(l);
-        }
-    }
-    let mut body = kinds::generic(&out.join("\n"), true);
-    if dropped > 0 {
-        body = format!("[{dropped} DEBUG/TRACE lines omitted]\n{body}");
-    }
-    body
+    crate::outliers::dedup_lines_preserving_outliers(s)
 }
 
 fn compress_code(s: &str) -> String {

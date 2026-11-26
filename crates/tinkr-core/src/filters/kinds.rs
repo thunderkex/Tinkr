@@ -43,9 +43,19 @@ pub fn apply(kind: Kind, text: &str, level: u8) -> String {
             |l| GIT_NOISE.is_match(l),
             "progress lines",
         )),
-        Kind::Docker | Kind::Kube => Some(table_squeeze(text)),
+        Kind::Docker | Kind::Kube => {
+            if crate::outliers::looks_like_logs(text) {
+                return crate::outliers::dedup_lines_preserving_outliers(text);
+            }
+            Some(table_squeeze(text))
+        }
         Kind::FileRead => return generic(text, false),
-        Kind::Generic => None,
+        Kind::Generic => {
+            if crate::outliers::looks_like_logs(text) {
+                return crate::outliers::dedup_lines_preserving_outliers(text);
+            }
+            None
+        }
     };
     generic(&specific.unwrap_or_else(|| text.to_string()), true)
 }
@@ -125,17 +135,7 @@ pub fn generic(text: &str, truncate: bool) -> String {
     const HEAD: usize = 80;
     const TAIL: usize = 80;
     if truncate && out.len() > HEAD + TAIL + 40 {
-        let mid = &out[HEAD..out.len() - TAIL];
-        let keep: Vec<&String> = mid
-            .iter()
-            .filter(|l| verify::is_critical(l) || !verify::critical_lines(l).is_empty())
-            .collect();
-        let omitted = mid.len() - keep.len();
-        let mut r: Vec<String> = out[..HEAD].to_vec();
-        r.push(format!("[{omitted} lines omitted]"));
-        r.extend(keep.into_iter().cloned());
-        r.extend_from_slice(&out[out.len() - TAIL..]);
-        return r.join("\n");
+        return crate::outliers::dedup_lines_preserving_outliers(&out.join("\n"));
     }
     out.join("\n")
 }

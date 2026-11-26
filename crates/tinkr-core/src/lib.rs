@@ -10,6 +10,7 @@ pub mod ledger;
 pub mod lifecycle;
 pub mod manifest;
 pub mod mcp;
+pub mod outliers;
 pub mod overlap;
 pub mod platform;
 pub mod profile;
