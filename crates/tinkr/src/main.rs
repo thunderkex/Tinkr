@@ -36,6 +36,11 @@ fn main() -> ExitCode {
 fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
     let n = Native;
     let paths = platform::paths(&n)?;
+
+    if args.first().map(String::as_str) == Some("hook") {
+        return cmd_hook(&n, &paths, args);
+    }
+
     let caps = platform::terminal(&n);
 
     match args.first().map(String::as_str) {
@@ -180,69 +185,6 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
                 caps.unicode,
             )?;
         }
-        Some("hook") => {
-            let agent = args.get(1).and_then(|s| Agent::parse(s));
-            if let Some(agent) = agent {
-                let cwd = std::env::current_dir().unwrap_or_default();
-                if !scope::is_paused(&paths.config, &cwd) {
-                    let mut buf = String::new();
-                    if io::stdin().read_to_string(&mut buf).is_ok() {
-                        if agent == Agent::Antigravity {
-                            if let Some(ev) = hook::extract_antigravity_stop(&buf) {
-                                if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
-                                    if !ledger
-                                        .has_session_event(Layer::SayLess, &ev.session_key)
-                                        .unwrap_or(false)
-                                    {
-                                        let ts = SystemTime::now()
-                                            .duration_since(UNIX_EPOCH)
-                                            .unwrap_or_default()
-                                            .as_secs() as i64;
-                                        let _ = ledger.record(&Event {
-                                            ts,
-                                            layer: Layer::SayLess,
-                                            provider: ev.provider,
-                                            tool: "antigravity".to_string(),
-                                            session: Some(ev.session_key),
-                                            before: ev.before,
-                                            after: ev.after,
-                                            kind: tinkr_core::ledger::CountKind::Estimated,
-                                            recall_id: None,
-                                        });
-                                    }
-                                }
-                                println!("{{\"decision\":\"allow\"}}");
-                                return Ok(ExitCode::SUCCESS);
-                            }
-                        }
-                        let exe = std::env::current_exe()
-                            .map(|p| p.to_string_lossy().into_owned())
-                            .unwrap_or_else(|_| "tinkr".to_string());
-                        let mut perms = Permissions::default();
-                        if agent == Agent::Claude {
-                            if let Ok(home) = n.home_dir() {
-                                let m = Machine::real(home);
-                                if let Some(p) = profile::builtin()
-                                    .into_iter()
-                                    .find(|x| x.id == "claude-code")
-                                {
-                                    if let Some(dir) = m.config_dir(&p) {
-                                        if let Ok(t) =
-                                            std::fs::read_to_string(dir.join("settings.json"))
-                                        {
-                                            perms.merge_from(&t);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if let Some(out) = hook::handle(agent, &buf, &exe, &perms) {
-                            println!("{out}");
-                        }
-                    }
-                }
-            }
-        }
         Some("run") => {
             return cmd_run(&paths, &args[1..], caps.unicode);
         }
@@ -250,6 +192,73 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
             cmd_overlap(&n, &paths, &args[1..])?;
         }
         Some(other) => return Err(format!("unknown command '{other}' (try `tinkr --help`)").into()),
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_hook(
+    n: &Native,
+    paths: &platform::Paths,
+    args: &[String],
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let Some(agent) = args.get(1).and_then(|s| Agent::parse(s)) else {
+        return Ok(ExitCode::SUCCESS);
+    };
+    let cwd = std::env::current_dir().unwrap_or_default();
+    if scope::is_paused(&paths.config, &cwd) {
+        return Ok(ExitCode::SUCCESS);
+    }
+    let mut buf = String::new();
+    if io::stdin().read_to_string(&mut buf).is_err() || buf.trim().is_empty() {
+        return Ok(ExitCode::SUCCESS);
+    }
+    if agent == Agent::Antigravity {
+        if let Some(ev) = hook::extract_antigravity_stop(&buf) {
+            if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
+                if !ledger
+                    .has_session_event(Layer::SayLess, &ev.session_key)
+                    .unwrap_or(false)
+                {
+                    let ts = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
+                    let _ = ledger.record(&Event {
+                        ts,
+                        layer: Layer::SayLess,
+                        provider: ev.provider,
+                        tool: "antigravity".to_string(),
+                        session: Some(ev.session_key),
+                        before: ev.before,
+                        after: ev.after,
+                        kind: tinkr_core::ledger::CountKind::Estimated,
+                        recall_id: None,
+                    });
+                }
+            }
+            println!("{{\"decision\":\"allow\"}}");
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "tinkr".to_string());
+    let mut perms = Permissions::default();
+    if agent == Agent::Claude
+        && (buf.contains("\"Bash\"") || buf.contains("\"PowerShell\""))
+    {
+        let claude_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+            .filter(|s| !s.is_empty())
+            .map( std::path::PathBuf::from )
+            .or_else(|| n.home_dir().ok().map(|h| h.join(".claude")));
+        if let Some(dir) = claude_dir {
+            if let Ok(t) = std::fs::read_to_string(dir.join("settings.json")) {
+                perms.merge_from(&t);
+            }
+        }
+    }
+    if let Some(out) = hook::handle(agent, &buf, &exe, &perms) {
+        println!("{out}");
     }
     Ok(ExitCode::SUCCESS)
 }

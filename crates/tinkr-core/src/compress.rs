@@ -245,12 +245,28 @@ fn compress_code(s: &str) -> String {
         let t = l.trim_start();
         let keep = verify::is_critical(l)
             || t.starts_with("pub fn ")
+            || t.starts_with("pub async fn ")
+            || t.starts_with("async fn ")
             || t.starts_with("fn ")
             || t.starts_with("pub struct ")
             || t.starts_with("struct ")
+            || t.starts_with("pub enum ")
+            || t.starts_with("enum ")
+            || t.starts_with("pub trait ")
+            || t.starts_with("trait ")
+            || t.starts_with("pub const ")
+            || t.starts_with("const ")
+            || t.starts_with("pub static ")
+            || t.starts_with("static ")
+            || t.starts_with("pub type ")
+            || t.starts_with("type ")
+            || t.starts_with("pub mod ")
+            || t.starts_with("mod ")
+            || t.starts_with("pub(crate) ")
             || t.starts_with("impl ")
             || t.starts_with("def ")
             || t.starts_with("class ")
+            || t.starts_with("interface ")
             || t.starts_with("export ");
         if keep {
             if omitted > 0 {
@@ -325,12 +341,22 @@ fn verify_payload(kind: PayloadKind, orig: &str, candidate: &str) -> bool {
     }
 }
 
+pub fn has_tinkr_marker(text: &str) -> bool {
+    text.lines().rev().take(8).any(|l| {
+        let t = l.trim();
+        t.starts_with("[tinkr:") && t.ends_with("recall]")
+    })
+}
+
 pub fn compress_tool_result(
     text: &str,
     tok: TokenizerKind,
     recall: Option<&RecallStore>,
     unicode: bool,
 ) -> Option<CompressedPayload> {
+    if has_tinkr_marker(text) || crate::overlap::has_foreign_marker(text.as_bytes(), &[]) {
+        return None;
+    }
     let before = tokenizer::count(text, tok).tokens;
     if before < defaults::MIN_PAYLOAD_TOKENS {
         return None;

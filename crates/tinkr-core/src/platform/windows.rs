@@ -49,21 +49,42 @@ fn encode(v: &EnvValue) -> RegValue {
 
 fn broadcast() {
     use windows_sys::Win32::{
-        Foundation::HWND,
-        UI::WindowsAndMessaging::{SendMessageTimeoutW, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE},
+        Foundation::FreeLibrary,
+        System::LibraryLoader::{GetProcAddress, LoadLibraryA},
     };
+    type SendMsgTimeoutFn = unsafe extern "system" fn(
+        hwnd: isize,
+        msg: u32,
+        wparam: usize,
+        lparam: isize,
+        flags: u32,
+        timeout: u32,
+        result: *mut usize,
+    ) -> isize;
+    const HWND_BROADCAST: isize = 0xffff;
+    const WM_SETTINGCHANGE: u32 = 0x001A;
+    const SMTO_ABORTIFHUNG: u32 = 0x0002;
+
     let param: Vec<u16> = "Environment\0".encode_utf16().collect();
     let mut result = 0usize;
     unsafe {
-        SendMessageTimeoutW(
-            0xffff as HWND,
-            WM_SETTINGCHANGE,
-            0,
-            param.as_ptr() as isize,
-            SMTO_ABORTIFHUNG,
-            2000,
-            &mut result,
-        );
+        let hmod = LoadLibraryA(c"user32.dll".as_ptr() as *const u8);
+        if !hmod.is_null() {
+            if let Some(raw_fn) = GetProcAddress(hmod, c"SendMessageTimeoutW".as_ptr() as *const u8)
+            {
+                let send_msg: SendMsgTimeoutFn = std::mem::transmute(raw_fn);
+                send_msg(
+                    HWND_BROADCAST,
+                    WM_SETTINGCHANGE,
+                    0,
+                    param.as_ptr() as isize,
+                    SMTO_ABORTIFHUNG,
+                    2000,
+                    &mut result,
+                );
+            }
+            FreeLibrary(hmod);
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 use serde_json::Value;
-use tinkr_core::{
+use crate::{
     compress,
     provider::Provider,
     recall::RecallStore,
@@ -176,9 +176,10 @@ impl ProviderAdapter for AnthropicAdapter {
                 }
                 Some(Value::Array(arr)) => {
                     let already = arr.iter().any(|b| {
-                        b["text"]
-                            .as_str()
-                            .is_some_and(|t| t.contains("Response style (Tinkr):"))
+                        b["text"].as_str().is_some_and(|t| {
+                            t.contains("Response style (Tinkr):")
+                                || crate::overlap::has_foreign_voice_rule(t)
+                        })
                     });
                     if !already {
                         arr.push(
@@ -424,9 +425,10 @@ impl ProviderAdapter for GeminiAdapter {
             if let Some(si) = body.get_mut("systemInstruction") {
                 if let Some(parts) = si.get_mut("parts").and_then(Value::as_array_mut) {
                     let already = parts.iter().any(|p| {
-                        p["text"]
-                            .as_str()
-                            .is_some_and(|t| t.contains("Response style (Tinkr):"))
+                        p["text"].as_str().is_some_and(|t| {
+                            t.contains("Response style (Tinkr):")
+                                || crate::overlap::has_foreign_voice_rule(t)
+                        })
                     });
                     if !already {
                         parts.push(serde_json::json!({ "text": say_less::TERSE_RULE }));

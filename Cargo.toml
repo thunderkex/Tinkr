@@ -11,7 +11,6 @@ repository = "https://github.com/thunderkex/tinkr"
 description = "Tinkr optimizes your agent's context so you don't have to."
 
 [workspace.dependencies]
-directories = "6"
 rusqlite = { version = "0.43", features = ["bundled"] }
 tiktoken-rs = "0.7"
 sha2 = "0.10"

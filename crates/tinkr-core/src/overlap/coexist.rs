@@ -138,10 +138,25 @@ pub fn has_foreign_marker(raw: &[u8], extra_markers: &[String]) -> bool {
     let Ok(s) = std::str::from_utf8(raw) else {
         return false;
     };
-    KNOWN_FOREIGN_MARKERS.iter().any(|m| s.contains(m))
-        || extra_markers
-            .iter()
-            .any(|m| !m.is_empty() && s.contains(m.as_str()))
+    for line in s.lines() {
+        if line.starts_with('+') || line.starts_with('-') || line.starts_with("    ") {
+            continue;
+        }
+        let t = line.trim();
+        if t.starts_with("[full output: rtk recall")
+            || t.starts_with("[headroom:")
+            || (t.starts_with('[') && t.contains("headroom_retrieve"))
+        {
+            return true;
+        }
+        if extra_markers.iter().any(|m| {
+            let m = m.trim();
+            !m.is_empty() && (t.starts_with(m) || (t.starts_with('[') && t.contains(m)))
+        }) {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn has_foreign_voice_rule(system: &str) -> bool {

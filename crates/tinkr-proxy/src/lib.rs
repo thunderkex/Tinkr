@@ -1,4 +1,4 @@
-pub mod adapters;
+pub use tinkr_core::adapters;
 
 use bytes::Bytes;
 use futures_util::{Stream, TryStreamExt};

@@ -52,23 +52,93 @@ pub trait Platform {
     fn unicode_capable(&self, env: &dyn Fn(&str) -> Option<String>) -> bool;
     fn env_store(&self, home: &Path, paths: &Paths) -> Box<dyn envpersist::EnvStore>;
     fn home_dir(&self) -> Result<PathBuf> {
-        directories::BaseDirs::new()
-            .map(|b| b.home_dir().to_path_buf())
-            .ok_or(Error::NoHome)
+        #[cfg(windows)]
+        {
+            if let Some(h) = std::env::var_os("USERPROFILE").filter(|s| !s.is_empty()) {
+                return Ok(PathBuf::from(h));
+            }
+            if let (Some(d), Some(p)) = (
+                std::env::var_os("HOMEDRIVE").filter(|s| !s.is_empty()),
+                std::env::var_os("HOMEPATH").filter(|s| !s.is_empty()),
+            ) {
+                let mut root = PathBuf::from(d);
+                root.push(p);
+                return Ok(root);
+            }
+            if let Some(h) = std::env::var_os("HOME").filter(|s| !s.is_empty()) {
+                return Ok(PathBuf::from(h));
+            }
+            Err(Error::NoHome)
+        }
+        #[cfg(unix)]
+        {
+            std::env::var_os("HOME")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .ok_or(Error::NoHome)
+        }
     }
     fn base_dirs(&self) -> Result<Paths> {
-        let b = directories::BaseDirs::new().ok_or(Error::NoHome)?;
-        let config = b.config_dir().join("tinkr");
-        let data = b.data_local_dir().join("tinkr");
-        let mut cache = b.cache_dir().join("tinkr");
-        if cache == data {
-            cache = data.join("cache");
+        #[cfg(windows)]
+        {
+            let home = self.home_dir();
+            let config_base = std::env::var_os("APPDATA")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .or_else(|| home.as_ref().ok().map(|h| h.join("AppData").join("Roaming")))
+                .ok_or(Error::NoHome)?;
+            let local_base = std::env::var_os("LOCALAPPDATA")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .or_else(|| home.as_ref().ok().map(|h| h.join("AppData").join("Local")))
+                .ok_or(Error::NoHome)?;
+            let config = config_base.join("tinkr");
+            let data = local_base.join("tinkr");
+            let cache = data.join("cache");
+            Ok(Paths {
+                config,
+                data,
+                cache,
+            })
         }
-        Ok(Paths {
-            config,
-            data,
-            cache,
-        })
+        #[cfg(target_os = "macos")]
+        {
+            let home = self.home_dir()?;
+            let app_support = home.join("Library").join("Application Support").join("tinkr");
+            let cache = home.join("Library").join("Caches").join("tinkr");
+            Ok(Paths {
+                config: app_support.clone(),
+                data: app_support,
+                cache,
+            })
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            let home = self.home_dir()?;
+            let config = std::env::var_os("XDG_CONFIG_HOME")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".config"))
+                .join("tinkr");
+            let data = std::env::var_os("XDG_DATA_HOME")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".local").join("share"))
+                .join("tinkr");
+            let mut cache = std::env::var_os("XDG_CACHE_HOME")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".cache"))
+                .join("tinkr");
+            if cache == data {
+                cache = data.join("cache");
+            }
+            Ok(Paths {
+                config,
+                data,
+                cache,
+            })
+        }
     }
 }
 

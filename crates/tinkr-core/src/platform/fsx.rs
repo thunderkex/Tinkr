@@ -11,9 +11,9 @@ fn lock_dir() -> PathBuf {
     if let Some(h) = std::env::var_os("TINKR_HOME").filter(|s| !s.is_empty()) {
         return PathBuf::from(h).join("cache").join("locks");
     }
-    directories::BaseDirs::new()
-        .map(|b| b.cache_dir().join("tinkr").join("locks"))
-        .unwrap_or_else(|| std::env::temp_dir().join("tinkr-locks"))
+    super::paths(&Native)
+        .map(|p| p.cache.join("locks"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("tinkr-locks"))
 }
 
 fn lock_path(path: &Path) -> PathBuf {

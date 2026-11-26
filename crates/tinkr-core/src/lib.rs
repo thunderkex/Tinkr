@@ -1,3 +1,4 @@
+pub mod adapters;
 pub mod auto;
 pub mod compress;
 pub mod defaults;

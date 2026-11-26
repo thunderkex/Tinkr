@@ -6,11 +6,26 @@ pub fn apply(kind: Kind, text: &str, level: u8) -> String {
     if level <= 1 {
         return generic(text, false);
     }
+    match kind {
+        Kind::GitLog => {
+            if let Some((rendered, has_patches)) = git_log(text) {
+                return generic(&rendered, !has_patches);
+            }
+            return generic(text, true);
+        }
+        Kind::ListDir => {
+            if let Some(rendered) = list_dir(text) {
+                let truncate = rendered.lines().count() > 1000;
+                return generic(&rendered, truncate);
+            }
+            return generic(text, true);
+        }
+        _ => {}
+    }
     let specific: Option<String> = match kind {
         Kind::GitStatus => Some(git_status(text)),
-        Kind::GitLog => git_log(text),
+        Kind::GitLog | Kind::ListDir => unreachable!(),
         Kind::GitDiff => Some(git_diff(text)),
-        Kind::ListDir => list_dir(text),
         Kind::Find => find_group(text),
         Kind::Grep => grep_group(text),
         Kind::Test => Some(drop_lines(
@@ -145,30 +160,84 @@ fn git_status(text: &str) -> String {
     out.join("\n")
 }
 
-fn git_log(text: &str) -> Option<String> {
+fn is_lockfile(path: &str) -> bool {
+    let fname = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    matches!(
+        fname,
+        "Cargo.lock"
+            | "package-lock.json"
+            | "pnpm-lock.yaml"
+            | "yarn.lock"
+            | "go.sum"
+            | "composer.lock"
+            | "Gemfile.lock"
+            | "poetry.lock"
+            | "uv.lock"
+    )
+}
+
+fn git_log(text: &str) -> Option<(String, bool)> {
     if !text.starts_with("commit ") {
         return None;
     }
+    let has_patches = text.contains("\ndiff --git ")
+        || text.contains("\n@@ ")
+        || text.contains(" files changed")
+        || text.contains(" file changed");
+
     let mut out = Vec::new();
     let (mut hash, mut author, mut date, mut subject): (String, String, String, Option<String>) =
         Default::default();
+    let mut patch_lines: Vec<String> = Vec::new();
+    let mut cur_lockfile: Option<String> = None;
+    let mut lockfile_omitted = 0usize;
+    let mut in_hunk = false;
     let mut have = false;
-    let emit = |out: &mut Vec<String>, h: &str, a: &str, d: &str, s: &Option<String>| {
+
+    let flush_lockfile =
+        |patch_lines: &mut Vec<String>, cur_lockfile: &Option<String>, omitted: &mut usize| {
+            if *omitted > 0 {
+                if let Some(lf) = cur_lockfile {
+                    patch_lines.push(format!("    [{} lockfile diff lines omitted in {lf}]", *omitted));
+                }
+                *omitted = 0;
+            }
+        };
+
+    let emit = |out: &mut Vec<String>,
+                h: &str,
+                a: &str,
+                d: &str,
+                s: &Option<String>,
+                patches: &mut Vec<String>| {
         let short_hash: String = h.chars().take(7).collect();
-        out.push(format!(
-            "{short_hash} {} ({a}, {d})",
-            s.as_deref().unwrap_or("(no message)")
-        ));
+        if has_patches {
+            out.push(format!(
+                "{short_hash} {} ({a})",
+                s.as_deref().unwrap_or("(no message)")
+            ));
+            out.append(patches);
+        } else {
+            out.push(format!(
+                "{short_hash} {} ({a}, {d})",
+                s.as_deref().unwrap_or("(no message)")
+            ));
+        }
     };
+
     for l in text.lines() {
         if let Some(h) = l.strip_prefix("commit ") {
             if have {
-                emit(&mut out, &hash, &author, &date, &subject);
+                flush_lockfile(&mut patch_lines, &cur_lockfile, &mut lockfile_omitted);
+                emit(&mut out, &hash, &author, &date, &subject, &mut patch_lines);
             }
             hash = h.split_whitespace().next().unwrap_or("").to_string();
             author.clear();
             date.clear();
             subject = None;
+            cur_lockfile = None;
+            lockfile_omitted = 0;
+            in_hunk = false;
             have = true;
         } else if let Some(a) = l.strip_prefix("Author:") {
             author = a.trim().split(" <").next().unwrap_or("").to_string();
@@ -176,12 +245,44 @@ fn git_log(text: &str) -> Option<String> {
             date = d.trim().to_string();
         } else if l.starts_with("    ") && subject.is_none() && !l.trim().is_empty() {
             subject = Some(l.trim().to_string());
+        } else if has_patches {
+            if let Some(rest) = l.strip_prefix("diff --git ") {
+                flush_lockfile(&mut patch_lines, &cur_lockfile, &mut lockfile_omitted);
+                let path = rest
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|b| b.strip_prefix("b/").or(Some(b)))
+                    .unwrap_or(rest);
+                cur_lockfile = is_lockfile(path).then(|| path.to_string());
+                in_hunk = false;
+                patch_lines.push(format!("  @ {path}"));
+            } else if l.starts_with("@@ ") {
+                in_hunk = true;
+            } else if l.starts_with("new file")
+                || l.starts_with("deleted file")
+                || l.starts_with("rename ")
+                || l.starts_with("Binary files")
+            {
+                patch_lines.push(format!("    {}", l.trim_end()));
+            } else if in_hunk && (l.starts_with('+') || l.starts_with('-'))
+                && !l.starts_with("+++ ")
+                && !l.starts_with("--- ")
+            {
+                if cur_lockfile.is_some() && !verify::is_critical(l) {
+                    lockfile_omitted += 1;
+                } else {
+                    patch_lines.push(l.trim_end().to_string());
+                }
+            } else if !in_hunk && (l.contains(" | ") || l.contains(" files changed") || l.contains(" file changed")) {
+                patch_lines.push(format!("  {}", l.trim()));
+            }
         }
     }
     if have {
-        emit(&mut out, &hash, &author, &date, &subject);
+        flush_lockfile(&mut patch_lines, &cur_lockfile, &mut lockfile_omitted);
+        emit(&mut out, &hash, &author, &date, &subject, &mut patch_lines);
     }
-    Some(out.join("\n"))
+    Some((out.join("\n"), has_patches))
 }
 
 fn git_diff(text: &str) -> String {
@@ -240,9 +341,34 @@ fn human(n: u64) -> String {
     }
 }
 
+fn is_noisy_dir_path(dir_path: &str) -> bool {
+    dir_path.split(['/', '\\']).any(|seg| {
+        matches!(
+            seg.trim_end_matches(':'),
+            "node_modules"
+                | ".git"
+                | "target"
+                | ".next"
+                | ".nuxt"
+                | "dist"
+                | "build"
+                | ".venv"
+                | "venv"
+                | "__pycache__"
+                | "vendor"
+                | ".turbo"
+                | "coverage"
+        )
+    })
+}
+
 fn list_dir(text: &str) -> Option<String> {
     let mut out = Vec::new();
     let (mut parsed, mut total) = (0usize, 0usize);
+    let mut in_noisy_dir = false;
+    let mut noisy_omitted = 0usize;
+    let mut noisy_note_idx: Option<usize> = None;
+
     for l in text.lines() {
         let t = l.trim_end();
         if t.is_empty() {
@@ -258,49 +384,78 @@ fn list_dir(text: &str) -> Option<String> {
             || t.contains("Dir(s)")
         {
             if t.trim_start().starts_with("Directory:") || t.contains("Directory of") {
-                out.push(format!(
-                    "{}:",
-                    t.trim()
-                        .trim_start_matches("Directory:")
-                        .trim()
-                        .trim_start_matches("Directory of")
-                        .trim()
-                ));
+                let dpath = t
+                    .trim()
+                    .trim_start_matches("Directory:")
+                    .trim()
+                    .trim_start_matches("Directory of")
+                    .trim();
+                in_noisy_dir = is_noisy_dir_path(dpath);
+                if !in_noisy_dir {
+                    out.push(format!("{dpath}:"));
+                } else if noisy_note_idx.is_none() {
+                    noisy_note_idx = Some(out.len());
+                    out.push(String::new());
+                }
             }
             continue;
         }
+        if let Some(dpath) = t.strip_suffix(':') {
+            if !dpath.contains(' ') && (dpath.contains('/') || dpath.contains('\\') || dpath.starts_with('.')) {
+                in_noisy_dir = is_noisy_dir_path(dpath);
+                if !in_noisy_dir {
+                    out.push(t.to_string());
+                } else if noisy_note_idx.is_none() {
+                    noisy_note_idx = Some(out.len());
+                    out.push(String::new());
+                }
+                continue;
+            }
+        }
         total += 1;
-        if let Some(c) = LS_LONG.captures(t) {
+        let formatted = if let Some(c) = LS_LONG.captures(t) {
             parsed += 1;
             let size: u64 = c[2].parse().unwrap_or(0);
             if &c[1] == "d" {
-                out.push(format!("{}/", &c[3]))
+                format!("{}/", &c[3])
             } else {
-                out.push(format!("{} {}", &c[3], human(size)))
+                format!("{} {}", &c[3], human(size))
             }
         } else if let Some(c) = PS_ROW.captures(t) {
             parsed += 1;
             let name = c[3].trim();
             if c[1].starts_with('d') {
-                out.push(format!("{name}/"))
+                format!("{name}/")
             } else {
                 let size: u64 = c
                     .get(2)
                     .and_then(|m| m.as_str().trim().parse().ok())
                     .unwrap_or(0);
-                out.push(format!("{name} {}", human(size)))
+                format!("{name} {}", human(size))
             }
         } else if let Some(c) = DIR_ROW.captures(t) {
             parsed += 1;
             let name = c[2].trim();
             if c[1].starts_with('<') {
-                out.push(format!("{name}/"))
+                format!("{name}/")
             } else {
                 let size: u64 = c[1].replace([',', '.'], "").parse().unwrap_or(0);
-                out.push(format!("{name} {}", human(size)))
+                format!("{name} {}", human(size))
             }
         } else {
-            out.push(t.to_string());
+            t.to_string()
+        };
+        if in_noisy_dir && !verify::is_critical(&formatted) {
+            noisy_omitted += 1;
+        } else {
+            out.push(formatted);
+        }
+    }
+    if let Some(idx) = noisy_note_idx {
+        if noisy_omitted > 0 {
+            out[idx] = format!("[{noisy_omitted} entries in third-party/build dirs omitted]");
+        } else {
+            out.remove(idx);
         }
     }
     if total == 0 || parsed * 100 / total.max(1) < 50 {
@@ -390,9 +545,48 @@ mod tests {
     #[test]
     fn git_log_default_becomes_one_line_per_commit() {
         let t = "commit 1234567890abcdef1234567890abcdef12345678\nAuthor: Ann <a@x.io>\nDate:   Mon Nov 3 10:00:00 2026 +0700\n\n    Fix thing\n\n    Longer body\n    more body\n\ncommit abcdef1234567890abcdef1234567890abcdef12\nAuthor: Bob <b@x.io>\nDate:   Sun Nov 2 09:00:00 2026 +0700\n\n    Add other\n";
-        let o = git_log(t).unwrap();
+        let (o, has_patches) = git_log(t).unwrap();
+        assert!(!has_patches);
         assert_eq!(o.lines().count(), 2);
         assert!(o.starts_with("1234567 Fix thing (Ann,"));
+    }
+
+    #[test]
+    fn git_log_with_patches_preserves_diffs_and_schema_changes() {
+        let mut t = String::new();
+        for i in 0..150 {
+            t.push_str(&format!(
+                "commit {i:040x}\nAuthor: Dev <d@x.io>\nDate: Tue Nov 24 10:00:00 2026 +0000\n\n    Change {i}\n\ndiff --git a/src/f{i}.sql b/src/f{i}.sql\nindex 111..222 100644\n--- a/src/f{i}.sql\n+++ b/src/f{i}.sql\n@@ -1,3 +1,4 @@\n SELECT 1;\n"
+            ));
+            if i == 75 {
+                t.push_str("+ALTER TABLE accounts ADD COLUMN tax_id TEXT;\n");
+            } else {
+                t.push_str(&format!("+SELECT {i};\n"));
+            }
+        }
+        let o = apply(Kind::GitLog, &t, 2);
+        assert!(o.contains("+ALTER TABLE accounts ADD COLUMN tax_id TEXT;"));
+        assert!(o.contains("@ src/f75.sql"));
+    }
+
+    #[test]
+    fn list_dir_collapses_node_modules_and_preserves_src() {
+        let mut ps = String::new();
+        for i in 0..120 {
+            ps.push_str(&format!(
+                "\n    Directory: C:\\app\\node_modules\\pkg_{i}\n\nMode                 LastWriteTime         Length Name\n----                 -------------         ------ ----\n-a----        11/23/2026   2:41 PM           1234 index.js\n"
+            ));
+        }
+        ps.push_str("\n    Directory: C:\\app\\src\n\nMode                 LastWriteTime         Length Name\n----                 -------------         ------ ----\n-a----        11/23/2026   2:41 PM           2048 main_entry.ts\n");
+        for i in 120..240 {
+            ps.push_str(&format!(
+                "\n    Directory: C:\\app\\node_modules\\zpkg_{i}\n\nMode                 LastWriteTime         Length Name\n----                 -------------         ------ ----\n-a----        11/23/2026   2:41 PM           1234 index.js\n"
+            ));
+        }
+        let o = apply(Kind::ListDir, &ps, 2);
+        assert!(o.contains("main_entry.ts"), "{o}");
+        assert!(o.contains("entries in third-party/build dirs omitted"), "{o}");
+        assert!(!o.contains("index.js"));
     }
 
     #[test]
