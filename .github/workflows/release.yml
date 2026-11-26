@@ -25,7 +25,7 @@ jobs:
           - { os: ubuntu-latest,    target: x86_64-unknown-linux-musl, arch: x64,   ext: tar.gz, native: true }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl,arch: arm64, ext: tar.gz, native: true }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: "${{ matrix.target }}" }
       - name: Install musl tools
@@ -169,7 +169,7 @@ jobs:
       JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - name: Package VS Code extension (.vsix)
