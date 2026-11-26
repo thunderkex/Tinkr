@@ -131,12 +131,140 @@ impl EnvStore for RegistryEnv {
     }
 }
 
+fn apply_user_only_dacl(path: &Path) -> std::io::Result<()> {
+    use core::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+
+    #[repr(C)]
+    struct SidAndAttributes {
+        sid: *mut c_void,
+        attributes: u32,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn CloseHandle(h: *mut c_void) -> i32;
+    }
+
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn OpenProcessToken(
+            process_handle: *mut c_void,
+            desired_access: u32,
+            token_handle: *mut *mut c_void,
+        ) -> i32;
+        fn GetTokenInformation(
+            token_handle: *mut c_void,
+            token_information_class: u32,
+            token_information: *mut u8,
+            token_information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+        fn GetLengthSid(sid: *mut c_void) -> u32;
+        fn InitializeAcl(acl: *mut u8, acl_length: u32, acl_revision: u32) -> i32;
+        fn AddAccessAllowedAceEx(
+            acl: *mut u8,
+            ace_revision: u32,
+            ace_flags: u32,
+            access_mask: u32,
+            sid: *mut c_void,
+        ) -> i32;
+        fn SetNamedSecurityInfoW(
+            object_name: *mut u16,
+            object_type: u32,
+            security_info: u32,
+            psid_owner: *mut c_void,
+            psid_group: *mut c_void,
+            dacl: *mut u8,
+            sacl: *mut u8,
+        ) -> u32;
+    }
+
+    const TOKEN_QUERY: u32 = 0x0008;
+    const TOKEN_USER_CLASS: u32 = 1;
+    const ACL_REVISION: u32 = 2;
+    const OBJECT_INHERIT_ACE: u32 = 0x1;
+    const CONTAINER_INHERIT_ACE: u32 = 0x2;
+    const GENERIC_ALL: u32 = 0x1000_0000;
+    const SE_FILE_OBJECT: u32 = 1;
+    const DACL_SECURITY_INFORMATION: u32 = 0x0000_0004;
+    const PROTECTED_DACL_SECURITY_INFORMATION: u32 = 0x8000_0000;
+
+    let is_dir = path.is_dir();
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+
+    unsafe {
+        let mut token: *mut c_void = core::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut needed = 0u32;
+        let _ = GetTokenInformation(token, TOKEN_USER_CLASS, core::ptr::null_mut(), 0, &mut needed);
+        if needed == 0 {
+            CloseHandle(token);
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut token_buf = vec![0u8; needed as usize];
+        if GetTokenInformation(
+            token,
+            TOKEN_USER_CLASS,
+            token_buf.as_mut_ptr(),
+            needed,
+            &mut needed,
+        ) == 0
+        {
+            CloseHandle(token);
+            return Err(std::io::Error::last_os_error());
+        }
+        let user_sid = (*(token_buf.as_ptr() as *const SidAndAttributes)).sid;
+        let sid_len = GetLengthSid(user_sid);
+        let acl_len = ((16 + sid_len + 3) & !3).max(32);
+        let mut acl_buf = vec![0u8; acl_len as usize];
+        if InitializeAcl(acl_buf.as_mut_ptr(), acl_len, ACL_REVISION) == 0 {
+            CloseHandle(token);
+            return Err(std::io::Error::last_os_error());
+        }
+        let ace_flags = if is_dir {
+            OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
+        } else {
+            0
+        };
+        if AddAccessAllowedAceEx(
+            acl_buf.as_mut_ptr(),
+            ACL_REVISION,
+            ace_flags,
+            GENERIC_ALL,
+            user_sid,
+        ) == 0
+        {
+            CloseHandle(token);
+            return Err(std::io::Error::last_os_error());
+        }
+        let status = SetNamedSecurityInfoW(
+            wide.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            acl_buf.as_mut_ptr(),
+            core::ptr::null_mut(),
+        );
+        CloseHandle(token);
+        if status != 0 {
+            return Err(std::io::Error::from_raw_os_error(status as i32));
+        }
+    }
+    Ok(())
+}
+
 impl Platform for Native {
     fn name(&self) -> &'static str {
         "windows"
     }
-    fn set_private(&self, _path: &Path) -> std::io::Result<()> {
-        Ok(())
+    fn set_private(&self, path: &Path) -> std::io::Result<()> {
+        apply_user_only_dacl(path)
     }
     fn set_executable(&self, _path: &Path) -> std::io::Result<()> {
         Ok(())

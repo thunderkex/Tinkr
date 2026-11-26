@@ -149,16 +149,25 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
             }
         }
         Some("recall") => {
-            let id = args.get(1).ok_or("usage: tinkr recall <id>")?;
-            let data = RecallStore::open(&paths.recall_dir())?.get(id)?;
-            if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
-                let ts = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
-                let _ = ledger.record_recall(id, ts);
+            let arg1 = args.get(1).map(String::as_str).ok_or("usage: tinkr recall <id> | --purge | --prune")?;
+            let store = RecallStore::open(&paths.recall_dir())?;
+            if arg1 == "--purge" {
+                let n = store.purge()?;
+                println!("purged {n} recall item(s)");
+            } else if arg1 == "--prune" {
+                let n = store.prune_default()?;
+                println!("pruned {n} expired recall item(s)");
+            } else {
+                let data = store.get(arg1)?;
+                if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
+                    let ts = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
+                    let _ = ledger.record_recall(arg1, ts);
+                }
+                io::stdout().write_all(&data)?;
             }
-            io::stdout().write_all(&data)?;
         }
         Some("undo") => {
             let home = n.home_dir()?;
@@ -316,7 +325,7 @@ fn print_help() {
            tinkr                    First run = auto-setup; afterwards = status\n  \
            tinkr gain [--why <cmd>] Show NET token savings or explain self-tuning for <cmd>\n  \
            tinkr doctor [--fix]     Diagnose OS, shells, agents, coverage, and repair drift\n  \
-           tinkr recall <id>        Fetch original uncompressed output by recall id\n  \
+           tinkr recall <id|--purge> Fetch original output by id, or purge all stored recalls\n  \
            tinkr undo [--purge]     Restore all edited configs and env vars byte-for-byte\n  \
            tinkr pause [--here]     Pause Tinkr globally or for the current project\n  \
            tinkr resume [--here]    Resume Tinkr\n  \

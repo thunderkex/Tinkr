@@ -20,7 +20,8 @@ impl Platform for Native {
         }
     }
     fn set_private(&self, path: &Path) -> std::io::Result<()> {
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        let mode = if path.is_dir() { 0o700 } else { 0o600 };
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))
     }
     fn set_executable(&self, path: &Path) -> std::io::Result<()> {
         fs::set_permissions(path, fs::Permissions::from_mode(0o755))
