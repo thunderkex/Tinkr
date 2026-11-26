@@ -57,11 +57,25 @@ fn passthrough(
 }
 
 pub fn process(cmd: &str, exit_code: i32, raw: &[u8], ctx: &Ctx) -> Outcome {
+    process_tuned(cmd, exit_code, raw, ctx, 2)
+}
+
+pub fn process_tuned(
+    cmd: &str,
+    exit_code: i32,
+    raw: &[u8],
+    ctx: &Ctx,
+    target_level: u8,
+) -> Outcome {
     let matched_rule = classify::match_catalog(cmd);
     let kind = matched_rule.map(|r| r.raw.kind).unwrap_or(Kind::Generic);
     let profile_id = matched_rule
         .map(|r| r.raw.id.as_str())
         .unwrap_or("generic");
+    if target_level == 0 {
+        let c = tokenizer::count_bytes(raw, ctx.tokenizer);
+        return passthrough(raw, c.tokens, c.kind, kind, profile_id, "self-tuned-disabled");
+    }
     if raw.contains(&0) {
         let c = tokenizer::count("", ctx.tokenizer);
         return passthrough(raw, c.tokens, c.kind, kind, profile_id, "binary");
@@ -111,8 +125,13 @@ pub fn process(cmd: &str, exit_code: i32, raw: &[u8], ctx: &Ctx) -> Outcome {
     if before < defaults::MIN_PAYLOAD_TOKENS {
         return passthrough(raw, before, c.kind, kind, profile_id, "small");
     }
+    let levels: &[u8] = match target_level {
+        3.. => &[3, 2, 1],
+        2 => &[2, 1],
+        _ => &[1],
+    };
     let mut saw_unverified = false;
-    for level in [2u8, 1u8] {
+    for &level in levels {
         let out = match matched_rule {
             Some(rule) => kinds::apply_catalog(rule, &text, level),
             None => kinds::apply(kind, &text, level),

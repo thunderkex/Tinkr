@@ -97,6 +97,10 @@ pub fn looks_like_logs(text: &str) -> bool {
 }
 
 pub fn dedup_lines_preserving_outliers(text: &str) -> String {
+    dedup_lines_with_rarity(text, 3)
+}
+
+pub fn dedup_lines_with_rarity(text: &str, max_rare_freq: usize) -> String {
     let raw_lines: Vec<&str> = text.lines().map(str::trim_end).collect();
     if raw_lines.len() <= 24 {
         return simple_run_dedup(&raw_lines);
@@ -127,10 +131,12 @@ pub fn dedup_lines_preserving_outliers(text: &str) -> String {
     lengths.sort_unstable();
     let median_len = lengths[lengths.len() / 2].max(1);
     let len_outlier_threshold = median_len.saturating_mul(3).max(200);
-    let rare_threshold = if non_empty_indices.len() >= 500 {
-        (non_empty_indices.len() / 200).max(3)
+    let rare_threshold = if max_rare_freq <= 1 {
+        1
+    } else if non_empty_indices.len() >= 500 {
+        (non_empty_indices.len() / 200).max(max_rare_freq)
     } else {
-        3
+        max_rare_freq
     };
 
     let first_ne = *non_empty_indices.first().unwrap();

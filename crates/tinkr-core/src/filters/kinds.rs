@@ -44,7 +44,7 @@ pub fn apply_catalog(rule: &CatalogRule, text: &str, level: u8) -> String {
                 generic(&prefiltered, true)
             }
         }
-        Strategy::GitDiff => generic(&git_diff(&prefiltered), true),
+        Strategy::GitDiff => generic(&git_diff_with_context(&prefiltered, level < 3), true),
         Strategy::ListDir => {
             if let Some(rendered) = list_dir(&prefiltered) {
                 let truncate = rendered.lines().count() > 1000;
@@ -58,15 +58,23 @@ pub fn apply_catalog(rule: &CatalogRule, text: &str, level: u8) -> String {
             generic(&s, true)
         }
         Strategy::GrepGroup => {
-            let s = grep_group(&prefiltered).unwrap_or(prefiltered);
+            let max_chars = if level >= 3 { 120 } else { 240 };
+            let s = grep_group_with_cap(&prefiltered, max_chars).unwrap_or(prefiltered);
             generic(&s, true)
         }
-        Strategy::DropLines => generic(&prefiltered, true),
+        Strategy::DropLines => {
+            if level >= 3 {
+                crate::outliers::dedup_lines_with_rarity(&prefiltered, 1)
+            } else {
+                generic(&prefiltered, true)
+            }
+        }
         Strategy::TableSqueeze => generic(&table_squeeze(&prefiltered), true),
-        Strategy::AutoStructured => apply_auto_structured(&prefiltered),
+        Strategy::AutoStructured => apply_auto_structured(&prefiltered, level),
         Strategy::FileRead => {
             if crate::outliers::looks_like_logs(&prefiltered) {
-                crate::outliers::dedup_lines_preserving_outliers(&prefiltered)
+                let rarity = if level >= 3 { 1 } else { 3 };
+                crate::outliers::dedup_lines_with_rarity(&prefiltered, rarity)
             } else {
                 generic(&prefiltered, false)
             }
@@ -74,7 +82,7 @@ pub fn apply_catalog(rule: &CatalogRule, text: &str, level: u8) -> String {
     }
 }
 
-fn apply_auto_structured(text: &str) -> String {
+fn apply_auto_structured(text: &str, level: u8) -> String {
     let trimmed = text.trim();
     if ((trimmed.starts_with('{') && trimmed.ends_with('}'))
         || (trimmed.starts_with('[') && trimmed.ends_with(']')))
@@ -90,7 +98,8 @@ fn apply_auto_structured(text: &str) -> String {
         }
     }
     if crate::outliers::looks_like_logs(text) {
-        return crate::outliers::dedup_lines_preserving_outliers(text);
+        let rarity = if level >= 3 { 1 } else { 3 };
+        return crate::outliers::dedup_lines_with_rarity(text, rarity);
     }
     generic(&table_squeeze(text), true)
 }
@@ -388,6 +397,10 @@ fn git_log(text: &str) -> Option<(String, bool)> {
 }
 
 fn git_diff(text: &str) -> String {
+    git_diff_with_context(text, true)
+}
+
+fn git_diff_with_context(text: &str, keep_context: bool) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut keep = vec![false; lines.len()];
     let mut in_hunk = false;
@@ -406,11 +419,13 @@ fn git_diff(text: &str) -> String {
         } else if l.starts_with("index ") || l.starts_with("similarity ") {
         } else if in_hunk && (l.starts_with('+') || l.starts_with('-') || l.starts_with('\\')) {
             keep[i] = true;
-            if i > 0 && !lines[i - 1].starts_with(['+', '-', '@']) {
-                keep[i - 1] = true;
-            }
-            if i + 1 < lines.len() && lines[i + 1].starts_with(' ') {
-                keep[i + 1] = true;
+            if keep_context {
+                if i > 0 && !lines[i - 1].starts_with(['+', '-', '@']) {
+                    keep[i - 1] = true;
+                }
+                if i + 1 < lines.len() && lines[i + 1].starts_with(' ') {
+                    keep[i + 1] = true;
+                }
             }
         } else if !in_hunk {
             keep[i] = true;
@@ -604,6 +619,10 @@ static GREP_HIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(.+?):(\d+):(?:\d+:)?(.*)$").unwrap());
 
 fn grep_group(text: &str) -> Option<String> {
+    grep_group_with_cap(text, 240)
+}
+
+fn grep_group_with_cap(text: &str, max_chars: usize) -> Option<String> {
     let mut out: Vec<String> = Vec::new();
     let mut cur: Option<String> = None;
     let mut hits = 0usize;
@@ -616,8 +635,8 @@ fn grep_group(text: &str) -> Option<String> {
                 cur = Some(c[1].to_string());
             }
             let body = c[3].trim();
-            let body: String = if body.chars().count() > 240 && !verify::is_critical(body) {
-                format!("{}…", body.chars().take(240).collect::<String>())
+            let body: String = if body.chars().count() > max_chars && !verify::is_critical(body) {
+                format!("{}…", body.chars().take(max_chars).collect::<String>())
             } else {
                 body.to_string()
             };

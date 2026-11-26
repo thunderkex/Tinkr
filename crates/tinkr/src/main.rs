@@ -61,8 +61,30 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
         Some("gain") => {
             let ledger = Ledger::open(&paths.ledger_db())?;
             let health_path = paths.data.join("health.json");
+            let tuning_path = paths.data.join("tuning.json");
             let mut health = HealthState::load(&health_path);
             let _ = auto::sync_net_disables(&ledger, &mut health, &health_path);
+            let _ = auto::sync_tuning(&ledger, &health, Some(&tuning_path));
+
+            if let Some(why_pos) = args.iter().position(|a| a == "--why") {
+                let query_parts: Vec<&str> = args[why_pos + 1..]
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|a| *a != "--json")
+                    .collect();
+                if query_parts.is_empty() {
+                    return Err("usage: tinkr gain --why <cmd> [--json]".into());
+                }
+                let query = query_parts.join(" ");
+                let rep = auto::explain_command(&query, &ledger, &health);
+                if args.iter().any(|a| a == "--json") {
+                    println!("{}", serde_json::to_string_pretty(&rep)?);
+                } else {
+                    print!("{}", auto::format_why(&rep));
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
+
             let s = ledger.summary(None)?;
             if args.iter().any(|a| a == "--json") {
                 println!("{}", serde_json::to_string_pretty(&s)?);
@@ -292,7 +314,7 @@ fn print_help() {
         "tinkr {VERSION} - Tinkr optimizes your agent's context so you don't have to.\n\n\
          Commands:\n  \
            tinkr                    First run = auto-setup; afterwards = status\n  \
-           tinkr gain [--json]      Show token savings by layer, provider, and tool\n  \
+           tinkr gain [--why <cmd>] Show NET token savings or explain self-tuning for <cmd>\n  \
            tinkr doctor [--fix]     Diagnose OS, shells, agents, coverage, and repair drift\n  \
            tinkr recall <id>        Fetch original uncompressed output by recall id\n  \
            tinkr undo [--purge]     Restore all edited configs and env vars byte-for-byte\n  \
@@ -806,21 +828,22 @@ fn cmd_run(
     }
 
     let health_path = paths.data.join("health.json");
+    let tuning_path = paths.data.join("tuning.json");
     let mut health = HealthState::load(&health_path);
+    let mut target_level = 2u8;
     if let Ok(ledger) = Ledger::open(&paths.ledger_db()) {
         let _ = auto::sync_net_disables(&ledger, &mut health, &health_path);
+        let tuning = auto::sync_tuning(&ledger, &health, Some(&tuning_path));
+        let pid = tinkr_core::filters::classify::profile_id_of(&cmd);
+        target_level = tuning.level_for(pid);
     }
     let profile_id = tinkr_core::filters::classify::profile_id_of(&cmd);
     let kind_name = hook::kind_of(&cmd).name();
     let breaker_key = format!("read_less:{profile_id}");
     let legacy_key = format!("read_less:{kind_name}");
-    if health.is_disabled(&breaker_key)
+    if target_level == 0
+        || health.is_disabled(&breaker_key)
         || health.is_disabled(&legacy_key)
-        || Ledger::open(&paths.ledger_db())
-            .ok()
-            .is_some_and(|l| {
-                auto::should_backoff(&l, profile_id) || auto::should_backoff(&l, kind_name)
-            })
     {
         io::stdout().write_all(&raw)?;
         return Ok(ExitCode::from(code as u8));
@@ -834,7 +857,7 @@ fn cmd_run(
             unicode,
             tokenizer: TokenizerKind::Exact,
         };
-        filters::process(&cmd, code, &raw, &ctx)
+        filters::process_tuned(&cmd, code, &raw, &ctx, target_level)
     });
 
     match outcome {
