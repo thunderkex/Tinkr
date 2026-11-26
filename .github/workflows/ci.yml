@@ -21,9 +21,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
         with:
-          arguments: check advisories bans licenses sources
+          tool: cargo-deny
+      - run: cargo deny check advisories bans licenses sources
 
   test:
     name: test (${{ matrix.os }})
