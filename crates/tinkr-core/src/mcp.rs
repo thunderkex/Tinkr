@@ -61,10 +61,14 @@ pub fn handle_request_with_ledger(
                 },
                 {
                     "name": "tinkr_read",
-                    "description": "Read a local file and return a compact view when large, with a recall id for the full original.",
+                    "description": "Read a local file and return a compact or deduplicated view when large or re-read, with a recall id for the full original.",
                     "inputSchema": {
                         "type": "object",
-                        "properties": { "path": { "type": "string" } },
+                        "properties": {
+                            "path": { "type": "string" },
+                            "start_line": { "type": "integer", "description": "Optional 1-based start line (inclusive)" },
+                            "end_line": { "type": "integer", "description": "Optional 1-based end line (inclusive)" }
+                        },
                         "required": ["path"]
                     }
                 }
@@ -120,34 +124,90 @@ pub fn handle_request_with_ledger(
                 }
                 "tinkr_read" => {
                     let p = args["path"].as_str().unwrap_or("");
+                    let start_line = args["start_line"].as_u64().map(|n| (n as usize).max(1));
+                    let end_line = args["end_line"].as_u64().map(|n| (n as usize).max(1));
                     match std::fs::read(p) {
-                        Ok(bytes) => {
-                            let s = String::from_utf8_lossy(&bytes);
-                            let out = match compress::compress_tool_result(
-                                &s,
+                        Ok(full_bytes) => {
+                            let full_str = String::from_utf8_lossy(&full_bytes);
+                            let (slice_cow, range_opt): (std::borrow::Cow<'_, [u8]>, Option<(usize, usize)>) =
+                                if start_line.is_some() || end_line.is_some() {
+                                    let lines: Vec<&str> = full_str.lines().collect();
+                                    let s_ln = start_line.unwrap_or(1).min(lines.len().max(1));
+                                    let e_ln = end_line.unwrap_or(lines.len()).max(s_ln).min(lines.len());
+                                    let sliced = if lines.is_empty() {
+                                        String::new()
+                                    } else {
+                                        lines[s_ln - 1..e_ln].join("\n")
+                                    };
+                                    (std::borrow::Cow::Owned(sliced.into_bytes()), Some((s_ln, e_ln)))
+                                } else {
+                                    (std::borrow::Cow::Borrowed(&full_bytes), None)
+                                };
+
+                            let cache_path = recall.dir().join("read-cache.json");
+                            let mut cache = crate::read_dedup::ReadCache::load(&cache_path);
+                            let dedup_hit = cache.observe_read(
+                                p,
+                                &slice_cow,
+                                range_opt,
                                 TokenizerKind::Exact,
                                 Some(recall),
                                 unicode,
-                            ) {
-                                Some(c) => {
-                                    if c.before > c.after {
-                                        if let Some(l) = ledger {
-                                            let _ = l.record(&Event {
-                                                ts: now_ts(),
-                                                layer: Layer::ReadLess,
-                                                provider: Provider::None,
-                                                tool: "mcp-read".to_string(),
-                                                session: None,
-                                                before: c.before,
-                                                after: c.after,
-                                                kind: CountKind::Measured,
-                                                recall_id: c.recall_id,
-                                            });
-                                        }
+                            );
+                            cache.save(&cache_path);
+
+                            let out = if let Some(hit) = dedup_hit {
+                                if hit.before > hit.after {
+                                    if let Some(l) = ledger {
+                                        let _ = l.record(&Event {
+                                            ts: now_ts(),
+                                            layer: Layer::ReadLess,
+                                            provider: Provider::None,
+                                            tool: "mcp-read".to_string(),
+                                            session: None,
+                                            before: hit.before,
+                                            after: hit.after,
+                                            kind: CountKind::Measured,
+                                            recall_id: hit.recall_id,
+                                        });
                                     }
-                                    c.text
                                 }
-                                None => s.into_owned(),
+                                hit.text
+                            } else {
+                                let s = String::from_utf8_lossy(&slice_cow);
+                                let keep_lossless_first_read =
+                                    crate::read_dedup::is_source_code_path(p)
+                                        && s.lines().count() <= 2500;
+                                if keep_lossless_first_read {
+                                    s.into_owned()
+                                } else {
+                                    match compress::compress_tool_result(
+                                        &s,
+                                        TokenizerKind::Exact,
+                                        Some(recall),
+                                        unicode,
+                                    ) {
+                                        Some(c) => {
+                                            if c.before > c.after {
+                                                if let Some(l) = ledger {
+                                                    let _ = l.record(&Event {
+                                                        ts: now_ts(),
+                                                        layer: Layer::ReadLess,
+                                                        provider: Provider::None,
+                                                        tool: "mcp-read".to_string(),
+                                                        session: None,
+                                                        before: c.before,
+                                                        after: c.after,
+                                                        kind: CountKind::Measured,
+                                                        recall_id: c.recall_id,
+                                                    });
+                                                }
+                                            }
+                                            c.text
+                                        }
+                                        None => s.into_owned(),
+                                    }
+                                }
                             };
                             json!({ "content": [{ "type": "text", "text": out }] })
                         }

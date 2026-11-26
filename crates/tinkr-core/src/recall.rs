@@ -68,6 +68,10 @@ impl RecallStore {
         })
     }
 
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     fn list(&self) -> Result<Vec<(String, PathBuf)>> {
         let mut out = Vec::new();
         for ent in fs::read_dir(&self.dir).map_err(io_err(&self.dir))? {

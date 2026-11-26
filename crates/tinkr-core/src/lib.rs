@@ -14,6 +14,7 @@ pub mod overlap;
 pub mod platform;
 pub mod profile;
 pub mod provider;
+pub mod read_dedup;
 pub mod recall;
 pub mod remote;
 pub mod runner;

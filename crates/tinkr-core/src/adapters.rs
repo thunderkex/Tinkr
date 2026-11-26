@@ -1,7 +1,9 @@
 use serde_json::Value;
+use std::collections::HashMap;
 use crate::{
     compress,
     provider::Provider,
+    read_dedup::{ReadCache, SnapshotOrigin},
     recall::RecallStore,
     say_less::{self, Billing},
     tokenizer::TokenizerKind,
@@ -66,6 +68,74 @@ fn extract_text_from_content(v: &Value) -> Option<String> {
     None
 }
 
+#[derive(Debug, Clone)]
+enum TrackedToolCall {
+    Read {
+        path: String,
+        range: Option<(usize, usize)>,
+    },
+    Write {
+        path: String,
+        content: String,
+    },
+}
+
+fn parse_tool_call_meta(name: &str, input: &Value) -> Option<TrackedToolCall> {
+    let lower = name.to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "read" | "read_file" | "view_file" | "tinkr_read" | "get_file_contents"
+    ) {
+        let path = input["file_path"]
+            .as_str()
+            .or_else(|| input["path"].as_str())
+            .or_else(|| input["Path"].as_str())?
+            .to_string();
+        let start = input["start_line"]
+            .as_u64()
+            .or_else(|| input["StartLine"].as_u64())
+            .or_else(|| input["offset"].as_u64());
+        let end = input["end_line"]
+            .as_u64()
+            .or_else(|| input["EndLine"].as_u64())
+            .or_else(|| {
+                input["limit"]
+                    .as_u64()
+                    .map(|lim| start.unwrap_or(1) + lim.saturating_sub(1))
+            });
+        let range = match (start, end) {
+            (Some(s), Some(e)) if s >= 1 && e >= s => Some((s as usize, e as usize)),
+            _ => None,
+        };
+        return Some(TrackedToolCall::Read { path, range });
+    }
+    if matches!(lower.as_str(), "write" | "write_file" | "create_file") {
+        let path = input["file_path"]
+            .as_str()
+            .or_else(|| input["path"].as_str())
+            .or_else(|| input["Path"].as_str())?
+            .to_string();
+        let content = input["content"]
+            .as_str()
+            .or_else(|| input["Content"].as_str())?
+            .to_string();
+        return Some(TrackedToolCall::Write { path, content });
+    }
+    None
+}
+
+fn extract_tool_result_str(b: &Value) -> Option<&str> {
+    if let Some(s) = b["content"].as_str() {
+        return Some(s);
+    }
+    if let Some(arr) = b["content"].as_array() {
+        if arr.len() == 1 && arr[0]["type"].as_str() == Some("text") {
+            return arr[0]["text"].as_str();
+        }
+    }
+    None
+}
+
 pub struct AnthropicAdapter;
 
 impl ProviderAdapter for AnthropicAdapter {
@@ -96,6 +166,9 @@ impl ProviderAdapter for AnthropicAdapter {
 
         let mut last_cached_msg = 0usize;
         let mut last_user_text: Option<String> = None;
+        let mut tool_uses: HashMap<String, TrackedToolCall> = HashMap::new();
+        let mut read_cache = ReadCache::default();
+
         if let Some(msgs) = body.get("messages").and_then(Value::as_array) {
             for (i, m) in msgs.iter().enumerate() {
                 if has_cache_control(m) {
@@ -106,9 +179,57 @@ impl ProviderAdapter for AnthropicAdapter {
                         last_user_text = Some(s);
                     }
                 }
+                if let Some(blocks) = m["content"].as_array() {
+                    for b in blocks {
+                        if b["type"].as_str() == Some("tool_use") {
+                            if let (Some(id), Some(name)) = (b["id"].as_str(), b["name"].as_str()) {
+                                if let Some(meta) = parse_tool_call_meta(name, &b["input"]) {
+                                    tool_uses.insert(id.to_string(), meta);
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if last_cached_msg == 0 && msgs.len() > 2 {
                 last_cached_msg = msgs.len() - 2;
+            }
+            for m in msgs.iter().take(last_cached_msg) {
+                if let Some(blocks) = m["content"].as_array() {
+                    for b in blocks {
+                        if b["type"].as_str() == Some("tool_use") {
+                            if let Some(id) = b["id"].as_str() {
+                                if let Some(TrackedToolCall::Write { path, content }) =
+                                    tool_uses.get(id)
+                                {
+                                    read_cache.record_baseline(
+                                        path,
+                                        content,
+                                        None,
+                                        SnapshotOrigin::AgentEdit,
+                                    );
+                                }
+                            }
+                        } else if b["type"].as_str() == Some("tool_result")
+                            && b["is_error"].as_bool() != Some(true)
+                        {
+                            if let (Some(id), Some(txt)) =
+                                (b["tool_use_id"].as_str(), extract_tool_result_str(b))
+                            {
+                                if let Some(TrackedToolCall::Read { path, range }) =
+                                    tool_uses.get(id)
+                                {
+                                    read_cache.record_baseline(
+                                        path,
+                                        txt,
+                                        *range,
+                                        SnapshotOrigin::Read,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -116,14 +237,55 @@ impl ProviderAdapter for AnthropicAdapter {
             for m in msgs.iter_mut().skip(last_cached_msg) {
                 if let Some(blocks) = m.get_mut("content").and_then(Value::as_array_mut) {
                     for b in blocks.iter_mut() {
+                        if b["type"].as_str() == Some("tool_use") {
+                            if let Some(id) = b["id"].as_str() {
+                                if let Some(TrackedToolCall::Write { path, content }) =
+                                    tool_uses.get(id)
+                                {
+                                    read_cache.record_baseline(
+                                        path,
+                                        content,
+                                        None,
+                                        SnapshotOrigin::AgentEdit,
+                                    );
+                                }
+                            }
+                            continue;
+                        }
                         if b["type"].as_str() != Some("tool_result")
                             || b.get("cache_control").is_some()
                         {
                             continue;
                         }
-                        if let Some(s) = b["content"].as_str() {
+                        let read_meta = b["tool_use_id"]
+                            .as_str()
+                            .filter(|_| b["is_error"].as_bool() != Some(true))
+                            .and_then(|id| match tool_uses.get(id) {
+                                Some(TrackedToolCall::Read { path, range }) => {
+                                    Some((path.clone(), *range))
+                                }
+                                _ => None,
+                            });
+
+                        if let Some(s) = b["content"].as_str().map(str::to_string) {
+                            if let Some((ref path, range)) = read_meta {
+                                if let Some(hit) = read_cache.observe_read(
+                                    path,
+                                    s.as_bytes(),
+                                    range,
+                                    self.tokenizer(),
+                                    recall,
+                                    unicode,
+                                ) {
+                                    before_total += hit.before;
+                                    after_total += hit.after;
+                                    b["content"] = Value::String(hit.text);
+                                    changed = true;
+                                    continue;
+                                }
+                            }
                             if let Some(c) =
-                                compress::compress_tool_result(s, self.tokenizer(), recall, unicode)
+                                compress::compress_tool_result(&s, self.tokenizer(), recall, unicode)
                             {
                                 before_total += c.before;
                                 after_total += c.after;
@@ -137,9 +299,25 @@ impl ProviderAdapter for AnthropicAdapter {
                                 if ib["type"].as_str() == Some("text")
                                     && ib.get("cache_control").is_none()
                                 {
-                                    if let Some(s) = ib["text"].as_str() {
+                                    if let Some(s) = ib["text"].as_str().map(str::to_string) {
+                                        if let Some((ref path, range)) = read_meta {
+                                            if let Some(hit) = read_cache.observe_read(
+                                                path,
+                                                s.as_bytes(),
+                                                range,
+                                                self.tokenizer(),
+                                                recall,
+                                                unicode,
+                                            ) {
+                                                before_total += hit.before;
+                                                after_total += hit.after;
+                                                ib["text"] = Value::String(hit.text);
+                                                changed = true;
+                                                continue;
+                                            }
+                                        }
                                         if let Some(c) = compress::compress_tool_result(
-                                            s,
+                                            &s,
                                             self.tokenizer(),
                                             recall,
                                             unicode,
@@ -238,10 +416,25 @@ impl ProviderAdapter for OpenAiAdapter {
         let mut last_user_text: Option<String> = None;
 
         if let Some(msgs) = body.get_mut("messages").and_then(Value::as_array_mut) {
+            let mut tool_calls: HashMap<String, TrackedToolCall> = HashMap::new();
             for m in msgs.iter() {
                 if m["role"].as_str() == Some("user") {
                     if let Some(s) = extract_text_from_content(&m["content"]) {
                         last_user_text = Some(s);
+                    }
+                }
+                if let Some(tcs) = m["tool_calls"].as_array() {
+                    for tc in tcs {
+                        let id = tc["id"].as_str();
+                        let name = tc["function"]["name"].as_str();
+                        let args_val = tc["function"]["arguments"]
+                            .as_str()
+                            .and_then(|s| serde_json::from_str::<Value>(s).ok());
+                        if let (Some(id), Some(name), Some(av)) = (id, name, args_val) {
+                            if let Some(meta) = parse_tool_call_meta(name, &av) {
+                                tool_calls.insert(id.to_string(), meta);
+                            }
+                        }
                     }
                 }
             }
@@ -249,11 +442,78 @@ impl ProviderAdapter for OpenAiAdapter {
                 .iter()
                 .rposition(|m| m["role"].as_str() == Some("assistant"))
                 .unwrap_or(0);
-            for m in msgs.iter_mut().skip(last_asst) {
+            let mut read_cache = ReadCache::default();
+            for m in msgs.iter().take(last_asst) {
+                if let Some(tcs) = m["tool_calls"].as_array() {
+                    for tc in tcs {
+                        if let Some(id) = tc["id"].as_str() {
+                            if let Some(TrackedToolCall::Write { path, content }) =
+                                tool_calls.get(id)
+                            {
+                                read_cache.record_baseline(
+                                    path,
+                                    content,
+                                    None,
+                                    SnapshotOrigin::AgentEdit,
+                                );
+                            }
+                        }
+                    }
+                }
                 if m["role"].as_str() == Some("tool") {
-                    if let Some(s) = m["content"].as_str() {
+                    if let (Some(id), Some(s)) = (m["tool_call_id"].as_str(), m["content"].as_str())
+                    {
+                        if let Some(TrackedToolCall::Read { path, range }) = tool_calls.get(id) {
+                            read_cache.record_baseline(path, s, *range, SnapshotOrigin::Read);
+                        }
+                    }
+                }
+            }
+            for m in msgs.iter_mut().skip(last_asst) {
+                if let Some(tcs) = m["tool_calls"].as_array() {
+                    for tc in tcs {
+                        if let Some(id) = tc["id"].as_str() {
+                            if let Some(TrackedToolCall::Write { path, content }) =
+                                tool_calls.get(id)
+                            {
+                                read_cache.record_baseline(
+                                    path,
+                                    content,
+                                    None,
+                                    SnapshotOrigin::AgentEdit,
+                                );
+                            }
+                        }
+                    }
+                }
+                if m["role"].as_str() == Some("tool") {
+                    let read_meta = m["tool_call_id"].as_str().and_then(|id| {
+                        match tool_calls.get(id) {
+                            Some(TrackedToolCall::Read { path, range }) => {
+                                Some((path.clone(), *range))
+                            }
+                            _ => None,
+                        }
+                    });
+                    if let Some(s) = m["content"].as_str().map(str::to_string) {
+                        if let Some((ref path, range)) = read_meta {
+                            if let Some(hit) = read_cache.observe_read(
+                                path,
+                                s.as_bytes(),
+                                range,
+                                self.tokenizer(),
+                                recall,
+                                unicode,
+                            ) {
+                                before_total += hit.before;
+                                after_total += hit.after;
+                                m["content"] = Value::String(hit.text);
+                                changed = true;
+                                continue;
+                            }
+                        }
                         if let Some(c) =
-                            compress::compress_tool_result(s, self.tokenizer(), recall, unicode)
+                            compress::compress_tool_result(&s, self.tokenizer(), recall, unicode)
                         {
                             before_total += c.before;
                             after_total += c.after;

@@ -59,6 +59,40 @@ pub fn process(cmd: &str, exit_code: i32, raw: &[u8], ctx: &Ctx) -> Outcome {
     let text = normalize::normalize(raw);
     let c = tokenizer::count(&text, ctx.tokenizer);
     let before = c.tokens;
+
+    if kind == Kind::FileRead && exit_code == 0 {
+        if let Some(store) = ctx.recall {
+            if let Some(file_path) = crate::read_dedup::extract_shell_read_path(cmd) {
+                let cache_path = store.dir().join("read-cache.json");
+                let mut cache = crate::read_dedup::ReadCache::load(&cache_path);
+                let hit = cache.observe_read(
+                    &file_path,
+                    raw,
+                    None,
+                    ctx.tokenizer,
+                    Some(store),
+                    ctx.unicode,
+                );
+                cache.save(&cache_path);
+                if let Some(h) = hit {
+                    let mut out_bytes = h.text.into_bytes();
+                    if !out_bytes.ends_with(b"\n") {
+                        out_bytes.push(b'\n');
+                    }
+                    return Outcome {
+                        output: out_bytes,
+                        before: h.before,
+                        after: h.after,
+                        kind_count: c.kind,
+                        recall_id: h.recall_id,
+                        decision: Decision::Compressed { level: 2 },
+                        kind,
+                    };
+                }
+            }
+        }
+    }
+
     if before < defaults::MIN_PAYLOAD_TOKENS {
         return passthrough(raw, before, c.kind, kind, "small");
     }
