@@ -281,9 +281,7 @@ impl SayLessTapMeta {
         let Some(after) = extract_output_tokens(&self.tail) else {
             return;
         };
-        let Some(before) = say_less::estimate_before_tokens(after) else {
-            return;
-        };
+        let before = say_less::estimate_before_tokens(after).unwrap_or(after);
         if let Ok(ledger) = Ledger::open(&self.ledger_db) {
             let ts = SystemTime::now()
                 .duration_since(UNIX_EPOCH)

@@ -166,6 +166,7 @@ impl ProviderAdapter for AnthropicAdapter {
 
         let mut last_cached_msg = 0usize;
         let mut last_user_text: Option<String> = None;
+        let mut assistant_prose_tokens: Vec<u64> = Vec::new();
         let mut tool_uses: HashMap<String, TrackedToolCall> = HashMap::new();
         let mut read_cache = ReadCache::default();
 
@@ -178,6 +179,10 @@ impl ProviderAdapter for AnthropicAdapter {
                     if let Some(s) = extract_text_from_content(&m["content"]) {
                         last_user_text = Some(s);
                     }
+                } else if m["role"].as_str() == Some("assistant") {
+                    let prose = extract_text_from_content(&m["content"]).unwrap_or_default();
+                    assistant_prose_tokens
+                        .push(crate::tokenizer::count(&prose, TokenizerKind::Exact).tokens);
                 }
                 if let Some(blocks) = m["content"].as_array() {
                     for b in blocks {
@@ -338,6 +343,10 @@ impl ProviderAdapter for AnthropicAdapter {
 
         let mut say_less_applied = false;
         if say_less::should_apply(self.billing())
+            && say_less::conversation_repays_overhead(
+                &assistant_prose_tokens,
+                say_less::DEFAULT_PAYBACK_TURNS as usize,
+            )
             && !last_user_text
                 .as_deref()
                 .is_some_and(say_less::user_needs_full_explanation)
@@ -414,6 +423,7 @@ impl ProviderAdapter for OpenAiAdapter {
         let mut after_total = 0u64;
         let mut changed = false;
         let mut last_user_text: Option<String> = None;
+        let mut assistant_prose_tokens: Vec<u64> = Vec::new();
 
         if let Some(msgs) = body.get_mut("messages").and_then(Value::as_array_mut) {
             let mut tool_calls: HashMap<String, TrackedToolCall> = HashMap::new();
@@ -422,6 +432,10 @@ impl ProviderAdapter for OpenAiAdapter {
                     if let Some(s) = extract_text_from_content(&m["content"]) {
                         last_user_text = Some(s);
                     }
+                } else if m["role"].as_str() == Some("assistant") {
+                    let prose = extract_text_from_content(&m["content"]).unwrap_or_default();
+                    assistant_prose_tokens
+                        .push(crate::tokenizer::count(&prose, TokenizerKind::Exact).tokens);
                 }
                 if let Some(tcs) = m["tool_calls"].as_array() {
                     for tc in tcs {
@@ -552,6 +566,10 @@ impl ProviderAdapter for OpenAiAdapter {
 
         let mut say_less_applied = false;
         if say_less::should_apply(self.billing_kind)
+            && say_less::conversation_repays_overhead(
+                &assistant_prose_tokens,
+                say_less::DEFAULT_PAYBACK_TURNS as usize,
+            )
             && !last_user_text
                 .as_deref()
                 .is_some_and(say_less::user_needs_full_explanation)
@@ -634,8 +652,23 @@ impl ProviderAdapter for GeminiAdapter {
         let mut after_total = 0u64;
         let mut changed = false;
         let mut last_user_text: Option<String> = None;
+        let mut assistant_prose_tokens: Vec<u64> = Vec::new();
 
         if let Some(contents) = body.get_mut("contents").and_then(Value::as_array_mut) {
+            for item in contents.iter() {
+                if item["role"].as_str() == Some("model") {
+                    let mut text_buf = String::new();
+                    if let Some(parts) = item["parts"].as_array() {
+                        for p in parts {
+                            if let Some(t) = p["text"].as_str() {
+                                text_buf.push_str(t);
+                            }
+                        }
+                    }
+                    assistant_prose_tokens
+                        .push(crate::tokenizer::count(&text_buf, TokenizerKind::Exact).tokens);
+                }
+            }
             if let Some(last) = contents.last() {
                 if let Some(parts) = last["parts"].as_array() {
                     for p in parts {
@@ -678,6 +711,10 @@ impl ProviderAdapter for GeminiAdapter {
 
         let mut say_less_applied = false;
         if say_less::should_apply(self.billing())
+            && say_less::conversation_repays_overhead(
+                &assistant_prose_tokens,
+                say_less::DEFAULT_PAYBACK_TURNS as usize,
+            )
             && !last_user_text
                 .as_deref()
                 .is_some_and(say_less::user_needs_full_explanation)
